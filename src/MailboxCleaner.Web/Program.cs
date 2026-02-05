@@ -2,6 +2,7 @@ using MailboxCleaner.Web.Application.Services;
 using MailboxCleaner.Web.Infrastructure.Google;
 using MailboxCleaner.Web.Infrastructure.Security;
 using MailboxCleaner.Web.Infrastructure.Google.Gmail;
+using MailboxCleaner.Web.Components;
 using Microsoft.AspNetCore.Authentication.Cookies;
 
 var builder = WebApplication.CreateBuilder(args);
