@@ -1,0 +1,13 @@
+@page "/overview"
+@inject IHttpContextAccessor HttpContextAccessor
+
+@if (HttpContextAccessor.HttpContext?.User?.Identity?.IsAuthenticated == true)
+{
+    <SenderOverview />
+}
+else
+{
+    <div class="alert alert-info">
+        Please <a href="/auth/login">login with Google</a> to view your sender overview.
+    </div>
+}
