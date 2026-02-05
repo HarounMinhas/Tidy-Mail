@@ -21,10 +21,10 @@ public sealed class GoogleOAuthService : IGoogleOAuthService
         {
             ClientId = _options.ClientId,
             RedirectUri = _options.RedirectUri,
-            Scope = _options.Scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+            Scope = string.Join(" ", _options.Scopes.Split(' ', StringSplitOptions.RemoveEmptyEntries)),
             State = state,
             AccessType = "offline",
-            IncludeGrantedScopes = true,
+            IncludeGrantedScopes = "true",
             Prompt = "consent"
         };
 
@@ -44,10 +44,10 @@ public sealed class GoogleOAuthService : IGoogleOAuthService
         });
 
         var token = await flow.ExchangeCodeForTokenAsync(
-            userId: "me",
-            code: code,
-            redirectUri: _options.RedirectUri,
-            cancellationToken: cancellationToken);
+            "me",
+            code,
+            _options.RedirectUri,
+            cancellationToken);
 
         return new TokenSet(token.AccessToken, token.RefreshToken ?? string.Empty, token.IssuedUtc?.AddSeconds(token.ExpiresInSeconds ?? 0));
     }
