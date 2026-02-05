@@ -1,0 +1,16 @@
+@inherits LayoutComponentBase
+
+<div class="page">
+    <header class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Tidy Mail</a>
+            <div class="d-flex align-items-center">
+                <LoginStatus />
+            </div>
+        </div>
+    </header>
+
+    <main class="container py-4">
+        @Body
+    </main>
+</div>

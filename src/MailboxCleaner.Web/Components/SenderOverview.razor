@@ -1,0 +1,180 @@
+@inject ISenderOverviewService OverviewService
+
+<h2>Sender overview</h2>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">Search</label>
+                <input class="form-control" @bind="SearchTerm" @bind:event="oninput" placeholder="Search by name or email" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Domain</label>
+                <select class="form-select" @bind="DomainFilter">
+                    <option value="">All domains</option>
+                    @foreach (var domain in availableDomains)
+                    {
+                        <option value="@domain">@domain</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Sort</label>
+                <select class="form-select" @bind="SortOption">
+                    <option value="@SenderSortOption.CountDesc">Count (desc)</option>
+                    <option value="@SenderSortOption.CountAsc">Count (asc)</option>
+                    <option value="@SenderSortOption.SenderAsc">Sender (A-Z)</option>
+                    <option value="@SenderSortOption.SenderDesc">Sender (Z-A)</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="noreplyOnly" @bind="NoreplyOnly" />
+                    <label class="form-check-label" for="noreplyOnly">Noreply only</label>
+                </div>
+            </div>
+        </div>
+        <div class="mt-3">
+            <button class="btn btn-outline-primary" @onclick="RefreshAsync" disabled="@isLoading">Refresh</button>
+        </div>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <div class="alert alert-info">Loading Gmail metadata…</div>
+}
+else if (!filteredSenders.Any())
+{
+    <div class="alert alert-warning">No senders found.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Sender</th>
+                    <th>Email</th>
+                    <th class="text-end">Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var sender in filteredSenders)
+                {
+                    <tr>
+                        <td>@sender.Name</td>
+                        <td>@sender.Email</td>
+                        <td class="text-end">@sender.Count</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private string searchTerm = string.Empty;
+    private string domainFilter = string.Empty;
+    private bool noreplyOnly;
+    private SenderSortOption sortOption = SenderSortOption.CountDesc;
+    private List<SenderStatDto> allSenders = new();
+    private List<SenderStatDto> filteredSenders = new();
+    private List<string> availableDomains = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        var query = new GetSenderOverviewQuery();
+        allSenders = (await OverviewService.GetOverviewAsync(query, CancellationToken.None)).ToList();
+        availableDomains = allSenders.Select(s => s.Domain)
+            .Where(domain => !string.IsNullOrWhiteSpace(domain))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(domain => domain)
+            .ToList();
+
+        ApplyFilters();
+        isLoading = false;
+    }
+
+    private void ApplyFilters()
+    {
+        IEnumerable<SenderStatDto> results = allSenders;
+
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            results = results.Where(sender =>
+                sender.Email.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                sender.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(domainFilter))
+        {
+            results = results.Where(sender => sender.Domain.Equals(domainFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (noreplyOnly)
+        {
+            results = results.Where(sender => sender.Email.Contains("noreply", StringComparison.OrdinalIgnoreCase));
+        }
+
+        results = sortOption switch
+        {
+            SenderSortOption.CountAsc => results.OrderBy(sender => sender.Count),
+            SenderSortOption.SenderAsc => results.OrderBy(sender => sender.Email),
+            SenderSortOption.SenderDesc => results.OrderByDescending(sender => sender.Email),
+            _ => results.OrderByDescending(sender => sender.Count)
+        };
+
+        filteredSenders = results.ToList();
+    }
+
+    private string SearchTerm
+    {
+        get => searchTerm;
+        set
+        {
+            searchTerm = value;
+            ApplyFilters();
+        }
+    }
+
+    private string DomainFilter
+    {
+        get => domainFilter;
+        set
+        {
+            domainFilter = value;
+            ApplyFilters();
+        }
+    }
+
+    private bool NoreplyOnly
+    {
+        get => noreplyOnly;
+        set
+        {
+            noreplyOnly = value;
+            ApplyFilters();
+        }
+    }
+
+    private SenderSortOption SortOption
+    {
+        get => sortOption;
+        set
+        {
+            sortOption = value;
+            ApplyFilters();
+        }
+    }
+}
