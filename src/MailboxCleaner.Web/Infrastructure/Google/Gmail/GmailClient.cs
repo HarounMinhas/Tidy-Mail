@@ -18,10 +18,18 @@ public sealed class GmailClient : IGmailClient
 
     public async Task<IReadOnlyList<string>> FetchFromHeadersAsync(CancellationToken cancellationToken)
     {
+        var metadata = await FetchMessageMetadataAsync(cancellationToken);
+        return metadata.Select(item => item.FromHeader)
+            .Where(header => !string.IsNullOrWhiteSpace(header))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(CancellationToken cancellationToken)
+    {
         var tokens = await _tokenStore.GetTokensAsync(cancellationToken);
         if (tokens is null || string.IsNullOrWhiteSpace(tokens.AccessToken))
         {
-            return Array.Empty<string>();
+            return Array.Empty<GmailMessageMetadata>();
         }
 
         var credential = GoogleCredential.FromAccessToken(tokens.AccessToken);
@@ -46,7 +54,7 @@ public sealed class GmailClient : IGmailClient
             listRequest.PageToken = response.NextPageToken;
         } while (!string.IsNullOrWhiteSpace(listRequest.PageToken));
 
-        var fromHeaders = new List<string>();
+        var metadataItems = new List<GmailMessageMetadata>();
         var throttler = new SemaphoreSlim(MaxConcurrency);
         var tasks = allMessageIds.Select(async messageId =>
         {
@@ -55,11 +63,16 @@ public sealed class GmailClient : IGmailClient
             {
                 var message = await FetchMetadataAsync(service, messageId, cancellationToken);
                 var fromHeader = message?.Payload?.Headers?.FirstOrDefault(h => h.Name == "From")?.Value;
-                if (!string.IsNullOrWhiteSpace(fromHeader))
+                if (!string.IsNullOrWhiteSpace(fromHeader) && message is not null)
                 {
-                    lock (fromHeaders)
+                    var subject = message.Payload?.Headers?.FirstOrDefault(h => h.Name == "Subject")?.Value ?? "(No subject)";
+                    var dateValue = message.Payload?.Headers?.FirstOrDefault(h => h.Name == "Date")?.Value;
+                    var receivedAt = DateTimeOffset.TryParse(dateValue, out var parsedDate) ? parsedDate : null;
+                    var isRead = message.LabelIds?.Contains("UNREAD") != true;
+
+                    lock (metadataItems)
                     {
-                        fromHeaders.Add(fromHeader);
+                        metadataItems.Add(new GmailMessageMetadata(message.Id ?? messageId, fromHeader, subject, receivedAt, isRead));
                     }
                 }
             }
@@ -71,14 +84,14 @@ public sealed class GmailClient : IGmailClient
 
         await Task.WhenAll(tasks);
 
-        return fromHeaders;
+        return metadataItems;
     }
 
     private static Task<Message> FetchMetadataAsync(GmailService service, string messageId, CancellationToken cancellationToken)
     {
         var getRequest = service.Users.Messages.Get("me", messageId);
         getRequest.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Metadata;
-        getRequest.MetadataHeaders = new[] { "From" };
+        getRequest.MetadataHeaders = new[] { "From", "Subject", "Date" };
         return getRequest.ExecuteAsync(cancellationToken);
     }
 }
