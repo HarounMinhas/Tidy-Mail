@@ -67,7 +67,7 @@ public sealed class GmailClient : IGmailClient
                 {
                     var subject = message.Payload?.Headers?.FirstOrDefault(h => h.Name == "Subject")?.Value ?? "(No subject)";
                     var dateValue = message.Payload?.Headers?.FirstOrDefault(h => h.Name == "Date")?.Value;
-                    var receivedAt = DateTimeOffset.TryParse(dateValue, out var parsedDate) ? parsedDate : null;
+                    DateTimeOffset? receivedAt = DateTimeOffset.TryParse(dateValue, out var parsedDate) ? parsedDate : null;
                     var isRead = message.LabelIds?.Contains("UNREAD") != true;
                     var hasAttachment = ContainsAttachment(message.Payload);
                     var labels = message.LabelIds?.ToList() ?? new List<string>();

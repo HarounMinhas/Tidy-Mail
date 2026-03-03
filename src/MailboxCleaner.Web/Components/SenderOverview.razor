@@ -193,8 +193,8 @@ else
     private List<SenderStatDto> filteredSenders = new();
     private List<string> availableDomains = new();
 
-    private List<MailItemDto> allMessages = new();
-    private List<MailItemDto> filteredMessages = new();
+    private IReadOnlyCollection<MailItemDto> allMessages = Array.Empty<MailItemDto>();
+    private IReadOnlyCollection<MailItemDto> filteredMessages = Array.Empty<MailItemDto>();
     private List<string> querySuggestions = new();
 
     private string messageQuery = string.Empty;
