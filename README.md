@@ -2,12 +2,26 @@
 
 Tidy Mail is a .NET 8 Blazor Server MVP that connects to Gmail, reads **metadata only**, and shows a sender overview with search, filtering, and sorting.
 
-## Features (MVP)
+## Features
 
 - Google OAuth2 login
 - Gmail API metadata access (no message bodies)
-- Sender overview grouped by email
-- Search, domain filter, noreply filter, and sorting
+- Sender overview grouped by email with expandable sender rows
+- Parent/child checkbox selection (sender-level select all + individual message override)
+- Message metadata view with subject, date, read status, folder, and attachment indicator
+- Collapsible filter panel with:
+  - sender/domain search
+  - unread/read filtering
+  - folder filtering
+  - attachment filtering
+  - autocomplete suggestions for sender and keyword
+- Bulk actions with confirmation pane:
+  - delete
+  - archive
+  - move to existing folder
+  - move to a new folder
+  - mark as read/unread
+- Unit tests with rich dummy data and edge-case coverage for filtering, autocomplete, selection, and bulk actions
 
 ## Prerequisites
 
@@ -57,4 +71,3 @@ Open `https://localhost:5001`, click **Login with Google**, and visit **Overview
 - Store secrets in environment variables or a secrets manager.
 - Update redirect URIs in Google Cloud to match production.
 - Use HTTPS in production.
-

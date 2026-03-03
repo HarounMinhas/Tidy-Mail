@@ -5,4 +5,6 @@ public sealed record GmailMessageMetadata(
     string FromHeader,
     string Subject,
     DateTimeOffset? ReceivedAt,
-    bool IsRead);
+    bool IsRead,
+    bool HasAttachment,
+    IReadOnlyCollection<string> Labels);

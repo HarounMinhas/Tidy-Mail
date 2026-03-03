@@ -7,4 +7,7 @@ public sealed record MailItemDto(
     string Domain,
     string Subject,
     DateTimeOffset? ReceivedAt,
-    bool IsRead);
+    bool IsRead,
+    bool HasAttachment,
+    bool IsArchived,
+    string Folder);

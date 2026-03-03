@@ -1,46 +1,73 @@
 <h2>Sender overview</h2>
 
 <div class="card mb-3">
-    <div class="card-body">
-        <div class="row g-3 align-items-end">
-            <div class="col-md-4">
-                <label class="form-label">Search</label>
-                <input class="form-control" @bind="SearchTerm" @bind:event="oninput" placeholder="Search by name or email" />
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Domain</label>
-                <input class="form-control" list="domain-options" @bind="DomainFilter" @bind:event="oninput" placeholder="Type or select domain" />
-                <datalist id="domain-options">
-                    @foreach (var domain in availableDomains)
-                    {
-                        <option value="@domain"></option>
-                    }
-                </datalist>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Sort</label>
-                <select class="form-select" @bind="SortOption">
-                    <option value="@SenderSortOption.CountDesc">Count (desc)</option>
-                    <option value="@SenderSortOption.CountAsc">Count (asc)</option>
-                    <option value="@SenderSortOption.SenderAsc">Sender (A-Z)</option>
-                    <option value="@SenderSortOption.SenderDesc">Sender (Z-A)</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="noreplyOnly" @bind="NoreplyOnly" />
-                    <label class="form-check-label" for="noreplyOnly">Noreply only</label>
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Filters</span>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleFilterPanel">@(showFilters ? "Hide" : "Show") filters</button>
+    </div>
+    @if (showFilters)
+    {
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">Search sender</label>
+                    <input class="form-control" @bind="SearchTerm" @bind:event="oninput" placeholder="Search by name or email" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Domain</label>
+                    <input class="form-control" list="domain-options" @bind="DomainFilter" @bind:event="oninput" />
+                    <datalist id="domain-options">
+                        @foreach (var domain in availableDomains)
+                        {
+                            <option value="@domain"></option>
+                        }
+                    </datalist>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Status</label>
+                    <select class="form-select" @bind="MessageStatusFilter">
+                        <option value="">All</option>
+                        <option value="Unread">Unread</option>
+                        <option value="Read">Read</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Folder</label>
+                    <select class="form-select" @bind="FolderFilter">
+                        <option value="">All</option>
+                        @foreach (var folder in ExistingFolders)
+                        {
+                            <option value="@folder">@folder</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Attachments</label>
+                    <select class="form-select" @bind="AttachmentFilterValue">
+                        <option value="">All</option>
+                        <option value="true">With attachment</option>
+                        <option value="false">No attachment</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Autocomplete sender/keyword</label>
+                    <input class="form-control" list="message-query-options" @bind="MessageQuery" @bind:event="oninput" placeholder="Search sender or keyword" />
+                    <datalist id="message-query-options">
+                        @foreach (var suggestion in querySuggestions)
+                        {
+                            <option value="@suggestion"></option>
+                        }
+                    </datalist>
+                </div>
+                <div class="col-md-2">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" id="noreplyOnly" @bind="NoreplyOnly" />
+                        <label class="form-check-label" for="noreplyOnly">Noreply only</label>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="mt-3 d-flex gap-2">
-            <button class="btn btn-outline-primary" @onclick="RefreshAsync" disabled="@isLoading">Refresh</button>
-            @if (!string.IsNullOrWhiteSpace(selectedSenderEmail))
-            {
-                <button class="btn btn-outline-secondary" @onclick="ClearSenderSelection">Clear sender selection</button>
-            }
-        </div>
-    </div>
+    }
 </div>
 
 @if (isLoading)
@@ -53,139 +80,140 @@ else if (!filteredSenders.Any())
 }
 else
 {
-    <div class="table-responsive mb-4">
-        <table class="table table-striped">
-            <thead>
-                <tr>
-                    <th>Sender</th>
-                    <th>Email</th>
-                    <th class="text-end">Count</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var sender in filteredSenders)
-                {
-                    var rowClass = selectedSenderEmail.Equals(sender.Email, StringComparison.OrdinalIgnoreCase)
-                        ? "table-primary"
-                        : string.Empty;
+    <div class="mb-3 text-muted">Selected messages: @engine.SelectedMessageIds.Count</div>
 
-                    <tr class="@rowClass" role="button" @onclick="() => SelectSender(sender.Email)">
-                        <td>@sender.Name</td>
-                        <td>@sender.Email</td>
-                        <td class="text-end">@sender.Count</td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+    @foreach (var sender in filteredSenders)
+    {
+        var senderMessages = filteredMessages.Where(message => message.SenderEmail.Equals(sender.Email, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (!senderMessages.Any())
+        {
+            continue;
+        }
+
+        var senderExpanded = engine.ExpandedSenders.Contains(sender.Email);
+        <div class="card mb-2">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <input type="checkbox" checked="@engine.IsSenderFullySelected(sender.Email)" @onchange="(args) => ToggleSenderSelection(sender.Email, args)" />
+                    <button class="btn btn-sm btn-link text-decoration-none" @onclick="() => ToggleSender(sender.Email)">
+                        @sender.Name (@sender.Email) - @senderMessages.Count mails
+                    </button>
+                </div>
+                <span class="badge text-bg-secondary">@sender.Count total</span>
+            </div>
+            @if (senderExpanded)
+            {
+                <div class="card-body p-0">
+                    <table class="table table-sm table-striped mb-0">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>Title</th>
+                                <th>Received</th>
+                                <th>Attachment</th>
+                                <th>Status</th>
+                                <th>Folder</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var message in senderMessages)
+                            {
+                                <tr>
+                                    <td>
+                                        <input type="checkbox" checked="@engine.SelectedMessageIds.Contains(message.Id)" @onchange="(args) => ToggleMessageSelection(message.Id, args)" />
+                                    </td>
+                                    <td>@message.Subject</td>
+                                    <td>@(message.ReceivedAt?.ToString("yyyy-MM-dd") ?? "Unknown")</td>
+                                    <td>@(message.HasAttachment ? "Yes" : "No")</td>
+                                    <td>@(message.IsRead ? "Read" : "Unread")</td>
+                                    <td>@message.Folder</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="card mt-4">
+        <div class="card-header">Bulk actions</div>
+        <div class="card-body d-flex flex-wrap gap-2">
+            <button class="btn btn-outline-danger" @onclick="() => OpenActionPane(MailBulkAction.Delete)">Delete</button>
+            <button class="btn btn-outline-primary" @onclick="() => OpenActionPane(MailBulkAction.Archive)">Archive</button>
+            <button class="btn btn-outline-secondary" @onclick="() => OpenActionPane(MailBulkAction.MarkRead)">Mark as read</button>
+            <button class="btn btn-outline-secondary" @onclick="() => OpenActionPane(MailBulkAction.MarkUnread)">Mark as unread</button>
+            <button class="btn btn-outline-warning" @onclick="() => OpenActionPane(MailBulkAction.Move)">Move to folder</button>
+        </div>
     </div>
+}
 
-    <h3>Mail overview</h3>
-
-    <div class="card mb-3">
+@if (showActionPane && pendingAction.HasValue)
+{
+    <div class="card mt-3 border-warning">
+        <div class="card-header">Confirm action</div>
         <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-4">
-                    <label class="form-label">Subject</label>
-                    <input class="form-control" list="subject-options" @bind="SubjectFilter" @bind:event="oninput" placeholder="Type subject" />
-                    <datalist id="subject-options">
-                        @foreach (var subject in AvailableSubjects)
-                        {
-                            <option value="@subject"></option>
-                        }
-                    </datalist>
+            <p>You are about to apply <strong>@pendingAction</strong> on <strong>@actionPreview?.SelectedCount</strong> messages.</p>
+
+            @if (pendingAction == MailBulkAction.Move)
+            {
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-6">
+                        <label class="form-label">Destination folder</label>
+                        <select class="form-select" @bind="selectedDestinationFolder">
+                            @foreach (var folder in ExistingFolders)
+                            {
+                                <option value="@folder">@folder</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Or create a new folder</label>
+                        <input class="form-control" @bind="newFolderName" placeholder="Enter folder name" />
+                    </div>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Date</label>
-                    <input class="form-control" list="date-options" @bind="DateFilter" @bind:event="oninput" placeholder="YYYY-MM-DD" />
-                    <datalist id="date-options">
-                        @foreach (var date in AvailableDates)
-                        {
-                            <option value="@date"></option>
-                        }
-                    </datalist>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Status</label>
-                    <input class="form-control" list="status-options" @bind="StatusFilter" @bind:event="oninput" placeholder="Read / Unread" />
-                    <datalist id="status-options">
-                        @foreach (var status in AvailableStatuses)
-                        {
-                            <option value="@status"></option>
-                        }
-                    </datalist>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">Sender</label>
-                    <input class="form-control" list="sender-options" @bind="MessageSenderFilter" @bind:event="oninput" placeholder="Type sender" />
-                    <datalist id="sender-options">
-                        @foreach (var sender in AvailableMessageSenders)
-                        {
-                            <option value="@sender"></option>
-                        }
-                    </datalist>
-                </div>
+            }
+
+            <div class="mt-3 d-flex gap-2">
+                <button class="btn btn-success" @onclick="ConfirmAction">Confirm</button>
+                <button class="btn btn-outline-secondary" @onclick="CancelAction">Cancel</button>
             </div>
         </div>
     </div>
-
-    @if (!filteredMessages.Any())
-    {
-        <div class="alert alert-warning">No messages match the selected filters.</div>
-    }
-    else
-    {
-        <p class="text-muted">Selected messages: @selectedMessageIds.Count</p>
-        <div class="table-responsive">
-            <table class="table table-striped">
-                <thead>
-                    <tr>
-                        <th></th>
-                        <th>Subject</th>
-                        <th>Date</th>
-                        <th>Status</th>
-                        <th>Sender</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var message in filteredMessages)
-                    {
-                        <tr>
-                            <td>
-                                <input type="checkbox"
-                                       checked="@selectedMessageIds.Contains(message.Id)"
-                                       @onchange="(args) => ToggleMessageSelection(message.Id, args)" />
-                            </td>
-                            <td>@message.Subject</td>
-                            <td>@(message.ReceivedAt?.ToString("yyyy-MM-dd HH:mm") ?? "Unknown")</td>
-                            <td>@(message.IsRead ? "Read" : "Unread")</td>
-                            <td>@message.SenderEmail</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
 }
 
 @code {
     private bool isLoading = true;
+    private bool showFilters = true;
     private string searchTerm = string.Empty;
     private string domainFilter = string.Empty;
     private bool noreplyOnly;
-    private SenderSortOption sortOption = SenderSortOption.CountDesc;
+
     private List<SenderStatDto> allSenders = new();
     private List<SenderStatDto> filteredSenders = new();
     private List<string> availableDomains = new();
 
     private List<MailItemDto> allMessages = new();
     private List<MailItemDto> filteredMessages = new();
-    private readonly HashSet<string> selectedMessageIds = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> querySuggestions = new();
 
-    private string selectedSenderEmail = string.Empty;
-    private string subjectFilter = string.Empty;
-    private string dateFilter = string.Empty;
-    private string statusFilter = string.Empty;
-    private string messageSenderFilter = string.Empty;
+    private string messageQuery = string.Empty;
+    private string messageStatusFilter = string.Empty;
+    private string folderFilter = string.Empty;
+    private string attachmentFilterValue = string.Empty;
+
+    private MailManagementEngine engine = new(Array.Empty<MailItemDto>());
+
+    private bool showActionPane;
+    private MailBulkAction? pendingAction;
+    private ActionPreview? actionPreview;
+    private string selectedDestinationFolder = "Inbox";
+    private string newFolderName = string.Empty;
+
+    private IEnumerable<string> ExistingFolders => allMessages.Select(message => message.Folder)
+        .Where(folder => !string.IsNullOrWhiteSpace(folder))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(folder => folder);
 
     protected override async Task OnInitializedAsync()
     {
@@ -197,11 +225,12 @@ else
         isLoading = true;
         StateHasChanged();
 
-        var query = new GetSenderOverviewQuery();
-        allSenders = (await OverviewService.GetOverviewAsync(query, CancellationToken.None)).ToList();
+        allSenders = (await OverviewService.GetOverviewAsync(new GetSenderOverviewQuery(), CancellationToken.None)).ToList();
         allMessages = (await OverviewService.GetMailItemsAsync(CancellationToken.None)).ToList();
 
-        availableDomains = allSenders.Select(s => s.Domain)
+        engine = new MailManagementEngine(allMessages);
+
+        availableDomains = allSenders.Select(sender => sender.Domain)
             .Where(domain => !string.IsNullOrWhiteSpace(domain))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(domain => domain)
@@ -218,8 +247,8 @@ else
         if (!string.IsNullOrWhiteSpace(searchTerm))
         {
             senderResults = senderResults.Where(sender =>
-                sender.Email.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
-                sender.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+                sender.Email.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
+                || sender.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
         }
 
         if (!string.IsNullOrWhiteSpace(domainFilter))
@@ -232,108 +261,70 @@ else
             senderResults = senderResults.Where(sender => sender.Email.Contains("noreply", StringComparison.OrdinalIgnoreCase));
         }
 
-        senderResults = sortOption switch
-        {
-            SenderSortOption.CountAsc => senderResults.OrderBy(sender => sender.Count),
-            SenderSortOption.SenderAsc => senderResults.OrderBy(sender => sender.Email),
-            SenderSortOption.SenderDesc => senderResults.OrderByDescending(sender => sender.Email),
-            _ => senderResults.OrderByDescending(sender => sender.Count)
-        };
+        filteredSenders = senderResults.OrderByDescending(sender => sender.Count).ToList();
 
-        filteredSenders = senderResults.ToList();
-
-        IEnumerable<MailItemDto> messageResults = allMessages;
-
-        if (!string.IsNullOrWhiteSpace(selectedSenderEmail))
-        {
-            messageResults = messageResults.Where(message => message.SenderEmail.Equals(selectedSenderEmail, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrWhiteSpace(messageSenderFilter))
-        {
-            messageResults = messageResults.Where(message => message.SenderEmail.Contains(messageSenderFilter, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrWhiteSpace(subjectFilter))
-        {
-            messageResults = messageResults.Where(message => message.Subject.Contains(subjectFilter, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (!string.IsNullOrWhiteSpace(dateFilter))
-        {
-            messageResults = messageResults.Where(message =>
-                message.ReceivedAt?.ToString("yyyy-MM-dd").Contains(dateFilter, StringComparison.OrdinalIgnoreCase) == true);
-        }
-
-        if (!string.IsNullOrWhiteSpace(statusFilter))
-        {
-            var normalized = statusFilter.Trim();
-            if (normalized.StartsWith("un", StringComparison.OrdinalIgnoreCase))
-            {
-                messageResults = messageResults.Where(message => !message.IsRead);
-            }
-            else if (normalized.StartsWith("re", StringComparison.OrdinalIgnoreCase))
-            {
-                messageResults = messageResults.Where(message => message.IsRead);
-            }
-        }
-
-        filteredMessages = messageResults
-            .OrderByDescending(message => message.ReceivedAt)
-            .ToList();
-
-        selectedMessageIds.RemoveWhere(id => filteredMessages.All(message => !message.Id.Equals(id, StringComparison.OrdinalIgnoreCase)));
+        filteredMessages = engine.FilterMessages(messageQuery, messageStatusFilter, folderFilter, ParseAttachmentFilter());
+        querySuggestions = engine.AutocompleteSuggestions(messageQuery).ToList();
     }
 
-    private IEnumerable<string> AvailableSubjects => filteredMessages
-        .Select(message => message.Subject)
-        .Where(subject => !string.IsNullOrWhiteSpace(subject))
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .OrderBy(subject => subject)
-        .Take(25);
-
-    private IEnumerable<string> AvailableDates => filteredMessages
-        .Where(message => message.ReceivedAt.HasValue)
-        .Select(message => message.ReceivedAt!.Value.ToString("yyyy-MM-dd"))
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .OrderByDescending(date => date)
-        .Take(25);
-
-    private static IReadOnlyList<string> AvailableStatuses { get; } = ["Read", "Unread"];
-
-    private IEnumerable<string> AvailableMessageSenders => filteredMessages
-        .Select(message => message.SenderEmail)
-        .Where(sender => !string.IsNullOrWhiteSpace(sender))
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .OrderBy(sender => sender)
-        .Take(25);
-
-    private void SelectSender(string email)
+    private bool? ParseAttachmentFilter() => attachmentFilterValue switch
     {
-        selectedSenderEmail = email;
-        messageSenderFilter = email;
-        ApplyFilters();
+        "true" => true,
+        "false" => false,
+        _ => null
+    };
+
+    private void ToggleSender(string senderEmail)
+    {
+        engine.ToggleSenderExpansion(senderEmail);
     }
 
-    private void ClearSenderSelection()
+    private void ToggleSenderSelection(string senderEmail, ChangeEventArgs args)
     {
-        selectedSenderEmail = string.Empty;
-        messageSenderFilter = string.Empty;
-        ApplyFilters();
+        var isChecked = args.Value is bool value && value;
+        engine.ToggleSenderSelection(senderEmail, isChecked);
     }
 
     private void ToggleMessageSelection(string messageId, ChangeEventArgs args)
     {
-        var isSelected = args.Value is bool boolValue && boolValue;
-        if (isSelected)
-        {
-            selectedMessageIds.Add(messageId);
-        }
-        else
-        {
-            selectedMessageIds.Remove(messageId);
-        }
+        var isChecked = args.Value is bool value && value;
+        engine.ToggleMessageSelection(messageId, isChecked);
     }
+
+    private void OpenActionPane(MailBulkAction action)
+    {
+        pendingAction = action;
+        showActionPane = true;
+        actionPreview = engine.PreviewAction(action, selectedDestinationFolder);
+    }
+
+    private void ConfirmAction()
+    {
+        if (!pendingAction.HasValue)
+        {
+            return;
+        }
+
+        if (pendingAction == MailBulkAction.Move && !string.IsNullOrWhiteSpace(newFolderName))
+        {
+            selectedDestinationFolder = newFolderName.Trim();
+        }
+
+        engine.ApplyAction(pendingAction.Value, selectedDestinationFolder);
+        allMessages = engine.FilterMessages(string.Empty, string.Empty, string.Empty, null).ToList();
+        ApplyFilters();
+        CancelAction();
+    }
+
+    private void CancelAction()
+    {
+        showActionPane = false;
+        pendingAction = null;
+        actionPreview = null;
+        newFolderName = string.Empty;
+    }
+
+    private void ToggleFilterPanel() => showFilters = !showFilters;
 
     private string SearchTerm
     {
@@ -365,52 +356,42 @@ else
         }
     }
 
-    private SenderSortOption SortOption
+    private string MessageQuery
     {
-        get => sortOption;
+        get => messageQuery;
         set
         {
-            sortOption = value;
+            messageQuery = value;
             ApplyFilters();
         }
     }
 
-    private string SubjectFilter
+    private string MessageStatusFilter
     {
-        get => subjectFilter;
+        get => messageStatusFilter;
         set
         {
-            subjectFilter = value;
+            messageStatusFilter = value;
             ApplyFilters();
         }
     }
 
-    private string DateFilter
+    private string FolderFilter
     {
-        get => dateFilter;
+        get => folderFilter;
         set
         {
-            dateFilter = value;
+            folderFilter = value;
             ApplyFilters();
         }
     }
 
-    private string StatusFilter
+    private string AttachmentFilterValue
     {
-        get => statusFilter;
+        get => attachmentFilterValue;
         set
         {
-            statusFilter = value;
-            ApplyFilters();
-        }
-    }
-
-    private string MessageSenderFilter
-    {
-        get => messageSenderFilter;
-        set
-        {
-            messageSenderFilter = value;
+            attachmentFilterValue = value;
             ApplyFilters();
         }
     }
