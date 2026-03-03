@@ -71,8 +71,44 @@ public sealed class SenderOverviewService : ISenderOverviewService
                 domain,
                 item.Subject,
                 item.ReceivedAt,
-                item.IsRead);
+                item.IsRead,
+                item.HasAttachment,
+                item.Labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase) is false,
+                ResolvePrimaryFolder(item.Labels));
         }).ToList();
+    }
+
+    private static string ResolvePrimaryFolder(IReadOnlyCollection<string> labels)
+    {
+        if (labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase))
+        {
+            return "Inbox";
+        }
+
+        var categoryLabel = labels.FirstOrDefault(label => label.StartsWith("CATEGORY_", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(categoryLabel))
+        {
+            return categoryLabel[9..].Replace('_', ' ').ToLowerInvariant() switch
+            {
+                var category when category.Length > 0 => char.ToUpperInvariant(category[0]) + category[1..],
+                _ => "Other"
+            };
+        }
+
+        var systemLabel = labels.FirstOrDefault(label =>
+            label.Equals("SENT", StringComparison.OrdinalIgnoreCase)
+            || label.Equals("DRAFT", StringComparison.OrdinalIgnoreCase)
+            || label.Equals("TRASH", StringComparison.OrdinalIgnoreCase)
+            || label.Equals("SPAM", StringComparison.OrdinalIgnoreCase));
+
+        return systemLabel?.ToLowerInvariant() switch
+        {
+            "sent" => "Sent",
+            "draft" => "Draft",
+            "trash" => "Trash",
+            "spam" => "Spam",
+            _ => "Archive"
+        };
     }
 
     private static (string Email, string Name) ParseSender(string header)

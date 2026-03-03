@@ -69,10 +69,12 @@ public sealed class GmailClient : IGmailClient
                     var dateValue = message.Payload?.Headers?.FirstOrDefault(h => h.Name == "Date")?.Value;
                     var receivedAt = DateTimeOffset.TryParse(dateValue, out var parsedDate) ? parsedDate : null;
                     var isRead = message.LabelIds?.Contains("UNREAD") != true;
+                    var hasAttachment = ContainsAttachment(message.Payload);
+                    var labels = message.LabelIds?.ToList() ?? new List<string>();
 
                     lock (metadataItems)
                     {
-                        metadataItems.Add(new GmailMessageMetadata(message.Id ?? messageId, fromHeader, subject, receivedAt, isRead));
+                        metadataItems.Add(new GmailMessageMetadata(message.Id ?? messageId, fromHeader, subject, receivedAt, isRead, hasAttachment, labels));
                     }
                 }
             }
@@ -93,5 +95,25 @@ public sealed class GmailClient : IGmailClient
         getRequest.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Metadata;
         getRequest.MetadataHeaders = new[] { "From", "Subject", "Date" };
         return getRequest.ExecuteAsync(cancellationToken);
+    }
+
+    private static bool ContainsAttachment(MessagePart? payload)
+    {
+        if (payload is null)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(payload.Filename))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(payload.Body?.AttachmentId))
+        {
+            return true;
+        }
+
+        return payload.Parts?.Any(ContainsAttachment) == true;
     }
 }
