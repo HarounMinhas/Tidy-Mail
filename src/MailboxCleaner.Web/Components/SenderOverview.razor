@@ -82,11 +82,11 @@
 {
     <div class="alert alert-danger">@errorMessage</div>
 }
-else if (!filteredSenders.Any())
+@if (!isLoading && !filteredSenders.Any())
 {
     <div class="alert alert-warning">No senders found.</div>
 }
-else
+else if (!isLoading)
 {
     <div class="mb-3 text-muted">Selected messages: @engine.SelectedMessageIds.Count</div>
     <div class="row g-2 mb-3"><div class="col-md-3"><select class="form-select" @bind="SortField"><option value="Count">Message count</option><option value="Name">Sender name</option><option value="Email">Email</option><option value="Newest">Newest message</option><option value="Oldest">Oldest message</option></select></div><div class="col-md-2"><select class="form-select" @bind="SortDirection"><option value="Desc">Descending</option><option value="Asc">Ascending</option></select></div></div>
