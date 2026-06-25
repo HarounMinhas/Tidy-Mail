@@ -72,7 +72,15 @@
 
 @if (isLoading)
 {
-    <div class="alert alert-info">Loading Gmail metadata…</div>
+    <div class="alert alert-info"><span class="spinner-border spinner-border-sm me-2"></span>@progressMessage</div>
+}
+@if (!string.IsNullOrWhiteSpace(successMessage))
+{
+    <div class="alert alert-success">@successMessage</div>
+}
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="alert alert-danger">@errorMessage</div>
 }
 else if (!filteredSenders.Any())
 {
@@ -81,6 +89,7 @@ else if (!filteredSenders.Any())
 else
 {
     <div class="mb-3 text-muted">Selected messages: @engine.SelectedMessageIds.Count</div>
+    <div class="row g-2 mb-3"><div class="col-md-3"><select class="form-select" @bind="SortField"><option value="Count">Message count</option><option value="Name">Sender name</option><option value="Email">Email</option><option value="Newest">Newest message</option><option value="Oldest">Oldest message</option></select></div><div class="col-md-2"><select class="form-select" @bind="SortDirection"><option value="Desc">Descending</option><option value="Asc">Ascending</option></select></div></div>
 
     @foreach (var sender in filteredSenders)
     {
@@ -139,11 +148,11 @@ else
     <div class="card mt-4">
         <div class="card-header">Bulk actions</div>
         <div class="card-body d-flex flex-wrap gap-2">
-            <button class="btn btn-outline-danger" @onclick="() => OpenActionPane(MailBulkAction.Delete)">Delete</button>
-            <button class="btn btn-outline-primary" @onclick="() => OpenActionPane(MailBulkAction.Archive)">Archive</button>
-            <button class="btn btn-outline-secondary" @onclick="() => OpenActionPane(MailBulkAction.MarkRead)">Mark as read</button>
-            <button class="btn btn-outline-secondary" @onclick="() => OpenActionPane(MailBulkAction.MarkUnread)">Mark as unread</button>
-            <button class="btn btn-outline-warning" @onclick="() => OpenActionPane(MailBulkAction.Move)">Move to folder</button>
+            <button class="btn btn-outline-danger" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Delete)">Delete</button>
+            <button class="btn btn-outline-primary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Archive)">Archive</button>
+            <button class="btn btn-outline-secondary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkRead)">Mark as read</button>
+            <button class="btn btn-outline-secondary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkUnread)">Mark as unread</button>
+            <button class="btn btn-outline-warning" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Move)">Move to label</button>
         </div>
     </div>
 }
@@ -159,23 +168,23 @@ else
             {
                 <div class="row g-2 align-items-end">
                     <div class="col-md-6">
-                        <label class="form-label">Destination folder</label>
-                        <select class="form-select" @bind="selectedDestinationFolder">
-                            @foreach (var folder in ExistingFolders)
+                        <label class="form-label">Destination Gmail label</label>
+                        <select class="form-select" @bind="selectedDestinationLabelId">
+                            @foreach (var label in existingLabels)
                             {
-                                <option value="@folder">@folder</option>
+                                <option value="@label.Id">@label.Name</option>
                             }
                         </select>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">Or create a new folder</label>
+                        <label class="form-label">Or create a new Gmail label</label>
                         <input class="form-control" @bind="newFolderName" placeholder="Enter folder name" />
                     </div>
                 </div>
             }
 
             <div class="mt-3 d-flex gap-2">
-                <button class="btn btn-success" @onclick="ConfirmAction">Confirm</button>
+                <button class="btn btn-success" disabled="@actionInProgress" @onclick="ConfirmAction">@(actionInProgress ? "Working…" : "Confirm")</button>
                 <button class="btn btn-outline-secondary" @onclick="CancelAction">Cancel</button>
             </div>
         </div>
@@ -207,8 +216,15 @@ else
     private bool showActionPane;
     private MailBulkAction? pendingAction;
     private ActionPreview? actionPreview;
-    private string selectedDestinationFolder = "Inbox";
+    private string selectedDestinationLabelId = "INBOX";
     private string newFolderName = string.Empty;
+    private List<MailboxCleaner.Web.Infrastructure.Google.GmailLabel> existingLabels = new();
+    private bool actionInProgress;
+    private string progressMessage = "Loading Gmail metadata…";
+    private string successMessage = string.Empty;
+    private string errorMessage = string.Empty;
+    private string sortField = "Count";
+    private string sortDirection = "Desc";
 
     private IEnumerable<string> ExistingFolders => allMessages.Select(message => message.Folder)
         .Where(folder => !string.IsNullOrWhiteSpace(folder))
@@ -225,8 +241,11 @@ else
         isLoading = true;
         StateHasChanged();
 
-        allSenders = (await OverviewService.GetOverviewAsync(new GetSenderOverviewQuery(), CancellationToken.None)).ToList();
+        progressMessage = "Loading Gmail metadata…";
         allMessages = (await OverviewService.GetMailItemsAsync(CancellationToken.None)).ToList();
+        allSenders = BuildSenderStats(allMessages);
+        existingLabels = (await OverviewService.GetLabelsAsync(CancellationToken.None)).ToList();
+        selectedDestinationLabelId = existingLabels.FirstOrDefault(label => label.Id == "INBOX")?.Id ?? existingLabels.FirstOrDefault()?.Id ?? string.Empty;
 
         engine = new MailManagementEngine(allMessages);
 
@@ -261,7 +280,7 @@ else
             senderResults = senderResults.Where(sender => sender.Email.Contains("noreply", StringComparison.OrdinalIgnoreCase));
         }
 
-        filteredSenders = senderResults.OrderByDescending(sender => sender.Count).ToList();
+        filteredSenders = SortSenders(senderResults).ToList();
 
         filteredMessages = engine.FilterMessages(messageQuery, messageStatusFilter, folderFilter, ParseAttachmentFilter());
         querySuggestions = engine.AutocompleteSuggestions(messageQuery).ToList();
@@ -295,25 +314,36 @@ else
     {
         pendingAction = action;
         showActionPane = true;
-        actionPreview = engine.PreviewAction(action, selectedDestinationFolder);
+        actionPreview = engine.PreviewAction(action, selectedDestinationLabelId);
     }
 
-    private void ConfirmAction()
+    private async Task ConfirmAction()
     {
-        if (!pendingAction.HasValue)
+        if (!pendingAction.HasValue || actionPreview is null || actionPreview.SelectedCount == 0)
         {
             return;
         }
 
-        if (pendingAction == MailBulkAction.Move && !string.IsNullOrWhiteSpace(newFolderName))
+        try
         {
-            selectedDestinationFolder = newFolderName.Trim();
+            actionInProgress = true;
+            progressMessage = $"Applying {pendingAction} to {actionPreview.SelectedCount} messages…";
+            errorMessage = string.Empty;
+            successMessage = string.Empty;
+            await OverviewService.ApplyActionAsync(pendingAction.Value, actionPreview.MessageIds, selectedDestinationLabelId, newFolderName, CancellationToken.None);
+            successMessage = $"{pendingAction} completed for {actionPreview.SelectedCount} messages.";
+            CancelAction();
+            await RefreshAsync();
         }
-
-        engine.ApplyAction(pendingAction.Value, selectedDestinationFolder);
-        allMessages = engine.FilterMessages(string.Empty, string.Empty, string.Empty, null).ToList();
-        ApplyFilters();
-        CancelAction();
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            actionInProgress = false;
+            progressMessage = "Loading Gmail metadata…";
+        }
     }
 
     private void CancelAction()
@@ -325,6 +355,52 @@ else
     }
 
     private void ToggleFilterPanel() => showFilters = !showFilters;
+
+
+    private static List<SenderStatDto> BuildSenderStats(IEnumerable<MailItemDto> messages) => messages
+        .GroupBy(message => message.SenderEmail, StringComparer.OrdinalIgnoreCase)
+        .Select(group =>
+        {
+            var first = group.First();
+            var dates = group.Select(message => message.ReceivedAt).Where(date => date.HasValue).Select(date => date!.Value).ToList();
+            return new SenderStatDto(first.SenderEmail, first.SenderName, group.Count(), first.Domain, dates.Count > 0 ? dates.Max() : null, dates.Count > 0 ? dates.Min() : null);
+        })
+        .ToList();
+
+    private IEnumerable<SenderStatDto> SortSenders(IEnumerable<SenderStatDto> senders) => (sortField, sortDirection) switch
+    {
+        ("Name", "Asc") => senders.OrderBy(sender => sender.Name).ThenBy(sender => sender.Email),
+        ("Name", _) => senders.OrderByDescending(sender => sender.Name).ThenBy(sender => sender.Email),
+        ("Email", "Asc") => senders.OrderBy(sender => sender.Email),
+        ("Email", _) => senders.OrderByDescending(sender => sender.Email),
+        ("Newest", "Asc") => senders.OrderBy(sender => sender.NewestMessage),
+        ("Newest", _) => senders.OrderByDescending(sender => sender.NewestMessage),
+        ("Oldest", "Asc") => senders.OrderBy(sender => sender.OldestMessage),
+        ("Oldest", _) => senders.OrderByDescending(sender => sender.OldestMessage),
+        (_, "Asc") => senders.OrderBy(sender => sender.Count).ThenBy(sender => sender.Email),
+        _ => senders.OrderByDescending(sender => sender.Count).ThenBy(sender => sender.Email)
+    };
+
+
+    private string SortField
+    {
+        get => sortField;
+        set
+        {
+            sortField = value;
+            ApplyFilters();
+        }
+    }
+
+    private string SortDirection
+    {
+        get => sortDirection;
+        set
+        {
+            sortDirection = value;
+            ApplyFilters();
+        }
+    }
 
     private string SearchTerm
     {

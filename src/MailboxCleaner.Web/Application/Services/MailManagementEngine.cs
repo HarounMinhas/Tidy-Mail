@@ -7,17 +7,26 @@ public sealed class MailManagementEngine
     private readonly List<MailItemDto> _messages;
     private readonly HashSet<string> _selectedMessageIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _expandedSenders = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<MailItemDto>> _messagesBySender;
+    private readonly string[] _suggestions;
 
     public MailManagementEngine(IEnumerable<MailItemDto> messages)
     {
         _messages = messages.ToList();
+        _messagesBySender = _messages.GroupBy(message => message.SenderEmail, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+        _suggestions = _messages.SelectMany(message => new[] { message.SenderEmail, message.SenderName, message.Subject })
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToArray();
     }
 
     public IReadOnlyCollection<string> SelectedMessageIds => _selectedMessageIds;
     public IReadOnlyCollection<string> ExpandedSenders => _expandedSenders;
 
     public IEnumerable<IGrouping<string, MailItemDto>> GroupedBySender =>
-        _messages.GroupBy(message => message.SenderEmail)
+        _messagesBySender.Values.Select(group => group.GroupBy(message => message.SenderEmail, StringComparer.OrdinalIgnoreCase).First())
             .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
 
     public void ToggleSenderExpansion(string senderEmail)
@@ -30,17 +39,18 @@ public sealed class MailManagementEngine
 
     public bool IsSenderFullySelected(string senderEmail)
     {
-        var ids = _messages.Where(message => message.SenderEmail.Equals(senderEmail, StringComparison.OrdinalIgnoreCase))
-            .Select(message => message.Id)
-            .ToList();
+        var ids = _messagesBySender.TryGetValue(senderEmail, out var senderMessages)
+            ? senderMessages.Select(message => message.Id).ToList()
+            : new List<string>();
 
         return ids.Count > 0 && ids.All(id => _selectedMessageIds.Contains(id));
     }
 
     public void ToggleSenderSelection(string senderEmail, bool selected)
     {
-        var ids = _messages.Where(message => message.SenderEmail.Equals(senderEmail, StringComparison.OrdinalIgnoreCase))
-            .Select(message => message.Id);
+        var ids = _messagesBySender.TryGetValue(senderEmail, out var senderMessages)
+            ? senderMessages.Select(message => message.Id)
+            : Enumerable.Empty<string>();
 
         foreach (var id in ids)
         {
@@ -105,19 +115,11 @@ public sealed class MailManagementEngine
     {
         if (string.IsNullOrWhiteSpace(input))
         {
-            return _messages
-                .SelectMany(message => new[] { message.SenderEmail, message.Subject })
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(value => value)
-                .Take(10);
+            return _suggestions.Take(10);
         }
 
-        return _messages
-            .SelectMany(message => new[] { message.SenderEmail, message.Subject })
+        return _suggestions
             .Where(value => value.Contains(input, StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(value => value)
             .Take(10);
     }
 
