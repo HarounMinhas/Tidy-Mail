@@ -28,6 +28,25 @@ public sealed class GmailActionIntegrationTests
         Assert.Contains("Label_Projects", gmail.MovedToLabels);
     }
 
+
+    [Fact]
+    public async Task GetMailItemsAsync_MapsGmailLabelIdsToDisplayNames()
+    {
+        var gmail = new RecordingGmailClient
+        {
+            Metadata =
+            [
+                new GmailMessageMetadata("m1", "Projects <projects@example.com>", "Project update", DateTimeOffset.Parse("2026-06-25T00:00:00Z"), true, false, ["Label_Projects"])
+            ],
+            Labels = [new GmailLabel("Label_Projects", "Projects", false)]
+        };
+        var service = new SenderOverviewService(new SenderAggregationService(gmail), gmail);
+
+        var items = await service.GetMailItemsAsync(CancellationToken.None);
+
+        Assert.Collection(items, item => Assert.Equal("Projects", item.Folder));
+    }
+
     private sealed class RecordingGmailClient : IGmailClient
     {
         public List<string> Trashed { get; } = new();
@@ -36,10 +55,12 @@ public sealed class GmailActionIntegrationTests
         public List<string> Unread { get; } = new();
         public List<string> MovedToLabels { get; } = new();
         public List<string> CreatedLabels { get; } = new();
+        public IReadOnlyList<GmailMessageMetadata> Metadata { get; init; } = Array.Empty<GmailMessageMetadata>();
+        public IReadOnlyList<GmailLabel> Labels { get; init; } = Array.Empty<GmailLabel>();
 
         public Task<IReadOnlyList<string>> FetchFromHeadersAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
-        public Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<GmailMessageMetadata>>(Array.Empty<GmailMessageMetadata>());
-        public Task<IReadOnlyList<GmailLabel>> FetchLabelsAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<GmailLabel>>(Array.Empty<GmailLabel>());
+        public Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(CancellationToken cancellationToken) => Task.FromResult(Metadata);
+        public Task<IReadOnlyList<GmailLabel>> FetchLabelsAsync(CancellationToken cancellationToken) => Task.FromResult(Labels);
         public Task TrashMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) { Trashed.AddRange(messageIds); return Task.CompletedTask; }
         public Task ArchiveMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) { Archived.AddRange(messageIds); return Task.CompletedTask; }
         public Task MarkMessagesReadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) { Read.AddRange(messageIds); return Task.CompletedTask; }

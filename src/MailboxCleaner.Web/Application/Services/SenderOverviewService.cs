@@ -49,11 +49,15 @@ public sealed class SenderOverviewService : ISenderOverviewService
     public async Task<IReadOnlyList<MailItemDto>> GetMailItemsAsync(CancellationToken cancellationToken)
     {
         var metadataItems = await _gmailClient.FetchMessageMetadataAsync(cancellationToken);
+        var labelsById = (await _gmailClient.FetchLabelsAsync(cancellationToken))
+            .GroupBy(label => label.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
         return metadataItems.Select(item =>
         {
             var (email, name) = ParseSender(item.FromHeader);
             var domain = email.Contains('@') ? email.Split('@')[1] : string.Empty;
-            return new MailItemDto(item.Id, email, name, domain, item.Subject, item.ReceivedAt, item.IsRead, item.HasAttachment, item.Labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase) is false, ResolvePrimaryFolder(item.Labels));
+            return new MailItemDto(item.Id, email, name, domain, item.Subject, item.ReceivedAt, item.IsRead, item.HasAttachment, item.Labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase) is false, ResolvePrimaryFolder(item.Labels, labelsById));
         }).ToList();
     }
 
@@ -74,14 +78,32 @@ public sealed class SenderOverviewService : ISenderOverviewService
         }
     }
 
-    private static string ResolvePrimaryFolder(IReadOnlyCollection<string> labels)
+    private static string ResolvePrimaryFolder(IReadOnlyCollection<string> labels, IReadOnlyDictionary<string, GmailLabel> labelsById)
     {
         if (labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase)) return "Inbox";
-        var userLabel = labels.FirstOrDefault(label => !label.Contains('_') && !new[] { "UNREAD", "SENT", "DRAFT", "TRASH", "SPAM", "STARRED", "IMPORTANT" }.Contains(label, StringComparer.OrdinalIgnoreCase));
-        if (!string.IsNullOrWhiteSpace(userLabel)) return userLabel;
+
+        var userLabel = labels
+            .Select(labelId => labelsById.TryGetValue(labelId, out var gmailLabel) ? gmailLabel : new GmailLabel(labelId, labelId, IsSystemLabel(labelId)))
+            .FirstOrDefault(label => !label.IsSystemLabel && !string.IsNullOrWhiteSpace(label.Name));
+        if (userLabel is not null) return userLabel.Name;
+
         var systemLabel = labels.FirstOrDefault(label => label.Equals("TRASH", StringComparison.OrdinalIgnoreCase) || label.Equals("SPAM", StringComparison.OrdinalIgnoreCase) || label.Equals("SENT", StringComparison.OrdinalIgnoreCase) || label.Equals("DRAFT", StringComparison.OrdinalIgnoreCase));
         return systemLabel?.ToLowerInvariant() switch { "trash" => "Trash", "spam" => "Spam", "sent" => "Sent", "draft" => "Draft", _ => "Archive" };
     }
+
+    private static bool IsSystemLabel(string label) => label.Equals("UNREAD", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("SENT", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("DRAFT", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("TRASH", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("SPAM", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("STARRED", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("IMPORTANT", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("INBOX", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("CATEGORY_PERSONAL", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("CATEGORY_SOCIAL", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("CATEGORY_PROMOTIONS", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("CATEGORY_UPDATES", StringComparison.OrdinalIgnoreCase)
+        || label.Equals("CATEGORY_FORUMS", StringComparison.OrdinalIgnoreCase);
 
     private static (string Email, string Name) ParseSender(string header)
     {

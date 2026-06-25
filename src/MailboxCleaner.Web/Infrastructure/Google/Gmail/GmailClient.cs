@@ -122,7 +122,7 @@ public sealed class GmailClient : IGmailClient
     public Task ArchiveMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: Array.Empty<string>(), removeLabels: ["INBOX"], cancellationToken);
     public Task MarkMessagesReadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: Array.Empty<string>(), removeLabels: ["UNREAD"], cancellationToken);
     public Task MarkMessagesUnreadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: ["UNREAD"], removeLabels: Array.Empty<string>(), cancellationToken);
-    public Task MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: [labelId], removeLabels: ["INBOX"], cancellationToken);
+    public Task MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: [labelId], removeLabels: ShouldRemoveInboxForMove(labelId) ? ["INBOX"] : Array.Empty<string>(), cancellationToken);
 
     public async Task<GmailLabel> CreateLabelAsync(string labelName, CancellationToken cancellationToken)
     {
@@ -150,11 +150,14 @@ public sealed class GmailClient : IGmailClient
                 cancellationToken.ThrowIfCancellationRequested();
                 await ExecuteWithRetryAsync(() => action(service, messageId), cancellationToken);
             }
-            InvalidateCache();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            throw new GmailOperationException("Gmail action failed. No local-only state was saved.", ex);
+            throw new GmailOperationException("Gmail action failed. Gmail metadata cache was invalidated before reporting this error.", ex);
+        }
+        finally
+        {
+            InvalidateCache();
         }
     }
 
@@ -166,6 +169,8 @@ public sealed class GmailClient : IGmailClient
     }
 
     private async Task<GmailService> CreateRequiredServiceAsync(CancellationToken cancellationToken) => await CreateServiceAsync(cancellationToken) ?? throw new GmailOperationException("Gmail token missing or expired. Please sign in again.", new InvalidOperationException("Missing Gmail token."));
+
+    private static bool ShouldRemoveInboxForMove(string labelId) => !labelId.Equals("INBOX", StringComparison.OrdinalIgnoreCase);
 
     private static Task<Message> FetchMetadataAsync(GmailService service, string messageId, CancellationToken cancellationToken)
     {
