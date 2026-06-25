@@ -13,17 +13,21 @@ public sealed class SenderOverviewService : ISenderOverviewService
     private readonly IGmailClient _gmailClient;
     private readonly IMailboxMetadataStore? _metadataStore;
     private readonly GmailBulkActionService? _bulkActionService;
+    private readonly IUserMailboxKeyProvider? _userMailboxKeyProvider;
+    private readonly MailboxUserContext? _mailboxUserContext;
 
     public SenderOverviewService(ISenderAggregationService aggregationService, IGmailClient gmailClient)
     {
         _gmailClient = gmailClient;
     }
 
-    public SenderOverviewService(ISenderAggregationService aggregationService, IGmailClient gmailClient, IMailboxMetadataStore metadataStore, GmailBulkActionService bulkActionService)
+    public SenderOverviewService(ISenderAggregationService aggregationService, IGmailClient gmailClient, IMailboxMetadataStore metadataStore, GmailBulkActionService bulkActionService, IUserMailboxKeyProvider userMailboxKeyProvider, MailboxUserContext mailboxUserContext)
     {
         _gmailClient = gmailClient;
         _metadataStore = metadataStore;
         _bulkActionService = bulkActionService;
+        _userMailboxKeyProvider = userMailboxKeyProvider;
+        _mailboxUserContext = mailboxUserContext;
     }
 
     public async Task<IReadOnlyList<SenderStatDto>> GetOverviewAsync(GetSenderOverviewQuery query, CancellationToken cancellationToken)
@@ -62,13 +66,16 @@ public sealed class SenderOverviewService : ISenderOverviewService
 
     public async Task<IReadOnlyList<MailItemDto>> GetMailItemsAsync(CancellationToken cancellationToken)
     {
-        var cachedMetadata = _metadataStore is null ? Array.Empty<MailboxMetadata>() : await _metadataStore.GetMetadataAsync("session", cancellationToken);
+        var userKey = GetUserKey();
+        var cachedMetadata = _metadataStore is null ? Array.Empty<MailboxMetadata>() : await _metadataStore.GetMetadataAsync(userKey, cancellationToken);
         var metadataItems = cachedMetadata.Count > 0
             ? cachedMetadata.Select(ToGmailMetadata).ToList()
             : await _gmailClient.FetchMessageMetadataAsync(cancellationToken);
-        var labelsById = (await _gmailClient.FetchLabelsAsync(cancellationToken))
-            .GroupBy(label => label.Id, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var labelsById = cachedMetadata.Count > 0
+            ? new Dictionary<string, GmailLabel>(StringComparer.OrdinalIgnoreCase)
+            : (await _gmailClient.FetchLabelsAsync(cancellationToken))
+                .GroupBy(label => label.Id, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         return metadataItems.Select(item =>
         {
@@ -84,7 +91,7 @@ public sealed class SenderOverviewService : ISenderOverviewService
     {
         if (_bulkActionService is not null)
         {
-            var result = await _bulkActionService.ApplyAsync("session", GmailBulkActionService.FromLegacyAction(action), messageIds, labelId, newLabelName, cancellationToken);
+            var result = await _bulkActionService.ApplyAsync(GetUserKey(), GmailBulkActionService.FromLegacyAction(action), messageIds, labelId, newLabelName, cancellationToken);
             if (result.TotalFailed > 0) throw new GmailOperationException("Gmail action failed for one or more messages.", new InvalidOperationException(string.Join("; ", result.ErrorMessages)));
             return;
         }
@@ -102,6 +109,8 @@ public sealed class SenderOverviewService : ISenderOverviewService
         }
     }
 
+
+    private string GetUserKey() => _mailboxUserContext?.CurrentUserKey ?? _userMailboxKeyProvider?.GetCurrentUserKey() ?? "legacy-test-session";
 
     private static GmailMessageMetadata ToGmailMetadata(MailboxMetadata item)
     {

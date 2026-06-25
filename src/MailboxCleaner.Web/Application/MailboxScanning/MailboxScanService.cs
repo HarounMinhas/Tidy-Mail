@@ -34,7 +34,7 @@ public sealed class MailboxScanService
 
             var metadata = await _gmailClient.FetchMessageMetadataAsync(cancellationToken);
             var mapped = metadata.Select(Map).ToList();
-            await _store.UpsertMetadataAsync(userId, mapped, cancellationToken);
+            await _store.ReplaceMetadataAsync(userId, mapped, cancellationToken);
 
             state = state with
             {

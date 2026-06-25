@@ -34,6 +34,19 @@ public sealed class MailboxWorkflowServiceTests
     }
 
     [Fact]
+    public async Task ReplaceMetadataAsync_RemovesMessagesMissingFromFullRescan()
+    {
+        var store = new MailboxMetadataStore();
+        var metadata = CreateMetadata(DateTimeOffset.UtcNow);
+        await store.ReplaceMetadataAsync("user", metadata, CancellationToken.None);
+
+        await store.ReplaceMetadataAsync("user", metadata.Where(m => m.MessageId != "m4"), CancellationToken.None);
+
+        var cached = await store.GetMetadataAsync("user", CancellationToken.None);
+        Assert.DoesNotContain(cached, message => message.MessageId == "m4");
+    }
+
+    [Fact]
     public async Task StoreUpdatesOnlySuccessfulMessageIdsAfterActions()
     {
         var store = new MailboxMetadataStore();
@@ -47,6 +60,25 @@ public sealed class MailboxWorkflowServiceTests
         Assert.True(cached.Single(m => m.MessageId == "m1").IsRead);
         Assert.DoesNotContain("INBOX", cached.Single(m => m.MessageId == "m2").Labels);
         Assert.Contains("UNREAD", cached.Single(m => m.MessageId == "m3").Labels);
+    }
+
+    [Fact]
+    public async Task MoveToLabel_RemovesPreviousUserLabelsButKeepsSystemLabels()
+    {
+        var store = new MailboxMetadataStore();
+        var now = DateTimeOffset.UtcNow;
+        await store.ReplaceMetadataAsync("user",
+        [
+            new("m1", "t1", "Sender", "sender@example.com", "example.com", "Subject", now, false, ["INBOX", "UNREAD", "Label_Old"], false, 100, now)
+        ], CancellationToken.None);
+
+        await store.UpdateAfterActionAsync("user", MailboxLocalAction.MoveToLabel, ["m1"], "Label_New", CancellationToken.None);
+
+        var moved = (await store.GetMetadataAsync("user", CancellationToken.None)).Single();
+        Assert.Contains("Label_New", moved.Labels);
+        Assert.Contains("UNREAD", moved.Labels);
+        Assert.DoesNotContain("Label_Old", moved.Labels);
+        Assert.DoesNotContain("INBOX", moved.Labels);
     }
 
     [Fact]

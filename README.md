@@ -7,7 +7,7 @@ Tidy Mail is a .NET 8 Blazor Server Gmail cleanup assistant for people with chao
 1. Sign in with Google.
 2. If no recent local scan exists, Tidy Mail shows a mailbox scan screen.
 3. During scanning, the UI explains that only metadata is fetched and shows status, scanned count, total discovered messages when known, current Gmail page, and a progress bar.
-4. Metadata is cached locally for the signed-in session/user.
+4. Metadata is cached locally under a stable authenticated user/session key so users do not share mailbox caches.
 5. Dashboard statistics, sender grouping, filtering, sorting, selections, and cleanup suggestions run from local metadata only.
 6. Gmail is called again only when the user confirms a write action.
 7. After Gmail confirms a write action, local metadata is updated for the successful message IDs.
@@ -63,6 +63,7 @@ Current scan behavior:
 - Metadata fetching is concurrency-limited.
 - Scan state tracks scan ID, user/session, start/completion time, page token, discovered/scanned counts, status, errors, and cached metadata.
 - A completed scan is reused instead of rescanning on every page load.
+- Full rescans replace the prior metadata set so messages removed outside Tidy Mail do not linger in the dashboard.
 - Stale scans can be refreshed manually.
 
 ## Dashboard and cleanup suggestions
@@ -100,7 +101,7 @@ Supported actions:
 - Move selected messages to an existing label
 - Create a label and move selected messages to it
 
-Batch modify is used for Gmail label modifications where possible with chunks of up to 1000 message IDs. Trash keeps Gmail trash semantics. Result objects report total requested, succeeded, failed, failed IDs, error messages, and partial success state. Local cache updates are applied only for successful message IDs.
+Batch modify is used for Gmail label modifications where possible with chunks of up to 1000 message IDs. Trash keeps Gmail trash semantics. Result objects report total requested, succeeded, failed, failed IDs, error messages, and partial success state. Local cache updates are applied only for successful message IDs, including removing old user labels when messages are moved to a different label.
 
 ## Prerequisites
 

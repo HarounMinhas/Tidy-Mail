@@ -49,6 +49,21 @@ public sealed class MailboxMetadataStore : IMailboxMetadataStore
         return Task.CompletedTask;
     }
 
+
+    public Task ReplaceMetadataAsync(string userId, IEnumerable<MailboxMetadata> metadata, CancellationToken cancellationToken)
+    {
+        var cache = _cache.GetOrAdd(userId, _ => new UserMailboxCache());
+        lock (cache)
+        {
+            cache.Metadata.Clear();
+            foreach (var item in metadata)
+            {
+                cache.Metadata[item.MessageId] = item;
+            }
+        }
+        return Task.CompletedTask;
+    }
+
     public Task<bool> HasMessageAsync(string userId, string messageId, CancellationToken cancellationToken)
     {
         var exists = _cache.TryGetValue(userId, out var cache) && cache.Metadata.ContainsKey(messageId);
@@ -86,6 +101,13 @@ public sealed class MailboxMetadataStore : IMailboxMetadataStore
                         labels.Add("UNREAD");
                         break;
                     case MailboxLocalAction.MoveToLabel:
+                        foreach (var existingLabel in labels.ToList())
+                        {
+                            if (!IsSystemLabel(existingLabel) && !existingLabel.Equals(labelId, StringComparison.OrdinalIgnoreCase))
+                            {
+                                labels.Remove(existingLabel);
+                            }
+                        }
                         if (!string.IsNullOrWhiteSpace(labelId)) labels.Add(labelId);
                         labels.Remove("INBOX");
                         break;
@@ -95,6 +117,16 @@ public sealed class MailboxMetadataStore : IMailboxMetadataStore
         }
         return Task.CompletedTask;
     }
+
+    private static bool IsSystemLabel(string labelId) => labelId.Equals("UNREAD", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("SENT", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("DRAFT", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("TRASH", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("SPAM", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("STARRED", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("IMPORTANT", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("INBOX", StringComparison.OrdinalIgnoreCase)
+        || labelId.StartsWith("CATEGORY_", StringComparison.OrdinalIgnoreCase);
 
     public bool IsScanStale(MailboxScanState? state, TimeSpan maxAge)
         => state?.CompletedAt is null || DateTimeOffset.UtcNow - state.CompletedAt.Value > maxAge;

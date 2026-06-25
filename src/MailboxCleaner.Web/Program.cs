@@ -43,6 +43,8 @@ builder.Services.AddScoped<IGoogleOAuthService, GoogleOAuthService>();
 builder.Services.AddScoped<IGmailCredentialFactory, GoogleUserCredentialFactory>();
 builder.Services.AddScoped<IGmailClient, GmailClient>();
 builder.Services.AddSingleton<IMailboxMetadataStore, MailboxMetadataStore>();
+builder.Services.AddScoped<IUserMailboxKeyProvider, UserMailboxKeyProvider>();
+builder.Services.AddScoped<MailboxUserContext>();
 builder.Services.AddScoped<MailboxScanService>();
 builder.Services.AddScoped<MailboxStatsService>();
 builder.Services.AddScoped<CleanupSuggestionService>();

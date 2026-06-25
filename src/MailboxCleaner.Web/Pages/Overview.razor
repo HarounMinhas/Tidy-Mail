@@ -2,6 +2,8 @@
 @using MailboxCleaner.Web.Application.MailboxScanning
 @inject IHttpContextAccessor HttpContextAccessor
 @inject IMailboxMetadataStore MetadataStore
+@inject IUserMailboxKeyProvider UserMailboxKeyProvider
+@inject MailboxUserContext MailboxUserContext
 
 @if (HttpContextAccessor.HttpContext?.User?.Identity?.IsAuthenticated == true)
 {
@@ -31,10 +33,11 @@ else
 @code {
     private MailboxScanState? scanState;
     private bool showScan;
-    private string UserId => "session";
+    private string UserId => UserMailboxKeyProvider.GetCurrentUserKey();
 
     protected override async Task OnInitializedAsync()
     {
+        MailboxUserContext.CurrentUserKey = UserId;
         scanState = await MetadataStore.GetCurrentScanAsync(UserId, CancellationToken.None);
         showScan = scanState is null || scanState.Status != MailboxScanStatus.Completed;
     }
