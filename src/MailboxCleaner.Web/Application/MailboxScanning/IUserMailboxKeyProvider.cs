@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace MailboxCleaner.Web.Application.MailboxScanning;
 
@@ -25,12 +26,18 @@ public sealed class UserMailboxKeyProvider : IUserMailboxKeyProvider
             ?? user?.FindFirstValue(ClaimTypes.Email)
             ?? user?.Identity?.Name;
 
-        if (!string.IsNullOrWhiteSpace(claimValue))
+        if (!string.IsNullOrWhiteSpace(claimValue) && !claimValue.Equals("google-user", StringComparison.OrdinalIgnoreCase))
         {
             return $"user:{claimValue.Trim().ToLowerInvariant()}";
         }
 
-        var sessionId = context?.Session?.Id;
+        var sessionId = GetSessionId(context);
         return string.IsNullOrWhiteSpace(sessionId) ? "anonymous" : $"session:{sessionId}";
+    }
+
+    private static string? GetSessionId(HttpContext? context)
+    {
+        var sessionFeature = context?.Features.Get<ISessionFeature>();
+        return sessionFeature?.Session?.Id;
     }
 }

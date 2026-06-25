@@ -7,7 +7,7 @@ Tidy Mail is a .NET 8 Blazor Server Gmail cleanup assistant for people with chao
 1. Sign in with Google.
 2. If no recent local scan exists, Tidy Mail shows a mailbox scan screen.
 3. During scanning, the UI explains that only metadata is fetched and shows status, scanned count, total discovered messages when known, current Gmail page, and a progress bar.
-4. Metadata is cached locally under a stable authenticated user/session key so users do not share mailbox caches.
+4. Metadata is cached locally under a stable Google account subject/email or session key so users do not share mailbox caches.
 5. Dashboard statistics, sender grouping, filtering, sorting, selections, and cleanup suggestions run from local metadata only.
 6. Gmail is called again only when the user confirms a write action.
 7. After Gmail confirms a write action, local metadata is updated for the successful message IDs.
@@ -50,7 +50,7 @@ Scopes are used as follows:
 - `openid email profile`: signs the user in and identifies the current session.
 - `gmail.modify`: required for archive, mark read, mark unread, label changes, and moving messages to trash. Reads still use metadata-only Gmail requests.
 
-Access tokens are refreshed through a `UserCredential` built from the stored token set. If Google reports an invalid or revoked refresh token, stored tokens are cleared so the user can safely sign in again.
+Access tokens are refreshed through a `UserCredential` built from the stored token set. The Google ID token is used to sign in with real account claims when available. If Google reports an invalid or revoked refresh token, stored tokens are cleared so the user can safely sign in again.
 
 ## How scanning works
 

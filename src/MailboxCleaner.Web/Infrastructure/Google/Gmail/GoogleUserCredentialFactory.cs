@@ -61,7 +61,8 @@ public sealed class GoogleUserCredentialFactory : IGmailCredentialFactory
                 await _tokenStore.SaveTokensAsync(new TokenSet(
                     credential.Token.AccessToken,
                     string.IsNullOrWhiteSpace(credential.Token.RefreshToken) ? tokens.RefreshToken : credential.Token.RefreshToken,
-                    expiresAt), cancellationToken);
+                    expiresAt,
+                    string.IsNullOrWhiteSpace(credential.Token.IdToken) ? tokens.IdToken : credential.Token.IdToken), cancellationToken);
             }
             catch (TokenResponseException ex) when (IsInvalidGrant(ex))
             {

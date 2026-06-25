@@ -2,6 +2,8 @@ using MailboxCleaner.Web.Application.Cleanup;
 using MailboxCleaner.Web.Application.Filtering;
 using MailboxCleaner.Web.Application.MailboxScanning;
 using MailboxCleaner.Web.Application.MailboxStats;
+using Microsoft.AspNetCore.Http;
+using System.Security.Claims;
 
 namespace MailboxCleaner.Web.Tests.Application;
 
@@ -79,6 +81,27 @@ public sealed class MailboxWorkflowServiceTests
         Assert.Contains("UNREAD", moved.Labels);
         Assert.DoesNotContain("Label_Old", moved.Labels);
         Assert.DoesNotContain("INBOX", moved.Labels);
+    }
+
+    [Fact]
+    public void UserMailboxKeyProvider_UsesRealClaimsAndFallsBackForPlaceholderGoogleUser()
+    {
+        var contextAccessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
+        contextAccessor.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, "google-user")
+        ], "test"));
+
+        var key = new UserMailboxKeyProvider(contextAccessor).GetCurrentUserKey();
+
+        Assert.DoesNotContain("google-user", key);
+
+        contextAccessor.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, "real-subject")
+        ], "test"));
+
+        Assert.Equal("user:real-subject", new UserMailboxKeyProvider(contextAccessor).GetCurrentUserKey());
     }
 
     [Fact]
