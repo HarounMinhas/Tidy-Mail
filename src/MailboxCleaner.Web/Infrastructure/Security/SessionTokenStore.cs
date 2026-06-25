@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 
@@ -32,9 +33,22 @@ public sealed class SessionTokenStore : ITokenStore
             return Task.FromResult<TokenSet?>(null);
         }
 
-        var payload = _protector.Unprotect(protectedPayload);
-        var tokenSet = JsonSerializer.Deserialize<TokenSet>(payload);
-        return Task.FromResult<TokenSet?>(tokenSet);
+        try
+        {
+            var payload = _protector.Unprotect(protectedPayload);
+            var tokenSet = JsonSerializer.Deserialize<TokenSet>(payload);
+            return Task.FromResult<TokenSet?>(tokenSet);
+        }
+        catch (CryptographicException)
+        {
+            _session.Remove(TokenKey);
+            return Task.FromResult<TokenSet?>(null);
+        }
+        catch (JsonException)
+        {
+            _session.Remove(TokenKey);
+            return Task.FromResult<TokenSet?>(null);
+        }
     }
 
     public Task ClearAsync(CancellationToken cancellationToken)

@@ -80,7 +80,7 @@ public sealed class SenderOverviewService : ISenderOverviewService
         return metadataItems.Select(item =>
         {
             var (email, name) = ParseSender(item.FromHeader);
-            var domain = email.Contains('@') ? email.Split('@')[1] : string.Empty;
+            var domain = email.Contains('@') ? email.Split('@')[^1] : string.Empty;
             return new MailItemDto(item.Id, email, name, domain, item.Subject, item.ReceivedAt, item.IsRead, item.HasAttachment, item.Labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase) is false, ResolvePrimaryFolder(item.Labels, labelsById));
         }).ToList();
     }
@@ -92,7 +92,7 @@ public sealed class SenderOverviewService : ISenderOverviewService
         if (_bulkActionService is not null)
         {
             var result = await _bulkActionService.ApplyAsync(GetUserKey(), GmailBulkActionService.FromLegacyAction(action), messageIds, labelId, newLabelName, cancellationToken);
-            if (result.TotalFailed > 0) throw new GmailOperationException("Gmail action failed for one or more messages.", new InvalidOperationException(string.Join("; ", result.ErrorMessages)));
+            if (result.TotalFailed > 0) throw new GmailOperationException($"Gmail action completed for {result.TotalSucceeded} of {result.TotalRequested} messages; {result.TotalFailed} failed.", new InvalidOperationException(string.Join("; ", result.ErrorMessages)));
             return;
         }
 

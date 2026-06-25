@@ -148,7 +148,7 @@ else if (!isLoading)
     <div class="card mt-4">
         <div class="card-header">Bulk actions</div>
         <div class="card-body d-flex flex-wrap gap-2">
-            <button class="btn btn-outline-danger" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Delete)">Delete</button>
+            <button class="btn btn-outline-danger" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Delete)">Move to trash</button>
             <button class="btn btn-outline-primary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Archive)">Archive</button>
             <button class="btn btn-outline-secondary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkRead)">Mark as read</button>
             <button class="btn btn-outline-secondary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkUnread)">Mark as unread</button>
@@ -256,22 +256,32 @@ else if (!isLoading)
         isLoading = true;
         StateHasChanged();
 
-        progressMessage = "Loading Gmail metadata…";
-        allMessages = (await OverviewService.GetMailItemsAsync(CancellationToken.None)).ToList();
-        allSenders = BuildSenderStats(allMessages);
-        existingLabels = (await OverviewService.GetLabelsAsync(CancellationToken.None)).ToList();
-        selectedDestinationLabelId = MoveDestinationLabels.FirstOrDefault()?.Id ?? string.Empty;
+        try
+        {
+            progressMessage = "Loading Gmail metadata…";
+            allMessages = (await OverviewService.GetMailItemsAsync(CancellationToken.None)).ToList();
+            allSenders = BuildSenderStats(allMessages);
+            existingLabels = (await OverviewService.GetLabelsAsync(CancellationToken.None)).ToList();
+            selectedDestinationLabelId = MoveDestinationLabels.FirstOrDefault()?.Id ?? string.Empty;
 
-        engine = new MailManagementEngine(allMessages);
+            engine = new MailManagementEngine(allMessages);
 
-        availableDomains = allSenders.Select(sender => sender.Domain)
-            .Where(domain => !string.IsNullOrWhiteSpace(domain))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(domain => domain)
-            .ToList();
+            availableDomains = allSenders.Select(sender => sender.Domain)
+                .Where(domain => !string.IsNullOrWhiteSpace(domain))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(domain => domain)
+                .ToList();
 
-        ApplyFilters();
-        isLoading = false;
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to load mailbox metadata. {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
     }
 
     private void ApplyFilters()
@@ -334,7 +344,7 @@ else if (!isLoading)
 
     private async Task ConfirmAction()
     {
-        if (!pendingAction.HasValue || actionPreview is null || actionPreview.SelectedCount == 0)
+        if (actionInProgress || !pendingAction.HasValue || actionPreview is null || actionPreview.SelectedCount == 0)
         {
             return;
         }

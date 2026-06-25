@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using MailboxCleaner.Web.Application.MailboxScanning;
 using MailboxCleaner.Web.Infrastructure.Google;
 using MailboxCleaner.Web.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication;
@@ -16,11 +17,15 @@ public sealed class GoogleAuthController : ControllerBase
     private const string StateKey = "oauth_state";
     private readonly IGoogleOAuthService _oauthService;
     private readonly ITokenStore _tokenStore;
+    private readonly IMailboxMetadataStore _metadataStore;
+    private readonly IUserMailboxKeyProvider _userMailboxKeyProvider;
 
-    public GoogleAuthController(IGoogleOAuthService oauthService, ITokenStore tokenStore)
+    public GoogleAuthController(IGoogleOAuthService oauthService, ITokenStore tokenStore, IMailboxMetadataStore metadataStore, IUserMailboxKeyProvider userMailboxKeyProvider)
     {
         _oauthService = oauthService;
         _tokenStore = tokenStore;
+        _metadataStore = metadataStore;
+        _userMailboxKeyProvider = userMailboxKeyProvider;
     }
 
     [HttpGet("login")]
@@ -33,10 +38,16 @@ public sealed class GoogleAuthController : ControllerBase
     }
 
     [HttpGet("callback")]
-    public async Task<IActionResult> Callback([FromQuery] string code, [FromQuery] string state, CancellationToken cancellationToken)
+    public async Task<IActionResult> Callback([FromQuery] string? code, [FromQuery] string? state, [FromQuery] string? error, CancellationToken cancellationToken)
     {
         var expectedState = HttpContext.Session.GetString(StateKey);
-        if (string.IsNullOrWhiteSpace(expectedState) || expectedState != state)
+        HttpContext.Session.Remove(StateKey);
+        if (!string.IsNullOrWhiteSpace(error))
+        {
+            return BadRequest("Google sign-in was cancelled or denied.");
+        }
+
+        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(expectedState) || expectedState != state)
         {
             return BadRequest("Invalid state.");
         }
@@ -69,6 +80,8 @@ public sealed class GoogleAuthController : ControllerBase
     [HttpGet("logout")]
     public async Task<IActionResult> Logout(CancellationToken cancellationToken)
     {
+        var userKey = _userMailboxKeyProvider.GetCurrentUserKey();
+        await _metadataStore.ClearAsync(userKey, cancellationToken);
         await _tokenStore.ClearAsync(cancellationToken);
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         return Redirect("/");

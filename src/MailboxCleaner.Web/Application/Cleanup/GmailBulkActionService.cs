@@ -26,27 +26,27 @@ public sealed class GmailBulkActionService
             switch (action)
             {
                 case CleanupBulkAction.Trash:
-                    await _gmailClient.TrashMessagesAsync(ids, cancellationToken);
-                    await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.Trash, ids, null, cancellationToken);
-                    break;
+                    var trashResult = await _gmailClient.TrashMessagesAsync(ids, cancellationToken);
+                    await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.Trash, trashResult.SucceededMessageIds, null, cancellationToken);
+                    return ToBulkResult(ids.Count, trashResult);
                 case CleanupBulkAction.Archive:
-                    await _gmailClient.ArchiveMessagesAsync(ids, cancellationToken);
-                    await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.Archive, ids, null, cancellationToken);
-                    break;
+                    var archiveResult = await _gmailClient.ArchiveMessagesAsync(ids, cancellationToken);
+                    await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.Archive, archiveResult.SucceededMessageIds, null, cancellationToken);
+                    return ToBulkResult(ids.Count, archiveResult);
                 case CleanupBulkAction.MarkRead:
-                    await _gmailClient.MarkMessagesReadAsync(ids, cancellationToken);
-                    await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.MarkRead, ids, null, cancellationToken);
-                    break;
+                    var readResult = await _gmailClient.MarkMessagesReadAsync(ids, cancellationToken);
+                    await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.MarkRead, readResult.SucceededMessageIds, null, cancellationToken);
+                    return ToBulkResult(ids.Count, readResult);
                 case CleanupBulkAction.MarkUnread:
-                    await _gmailClient.MarkMessagesUnreadAsync(ids, cancellationToken);
-                    await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.MarkUnread, ids, null, cancellationToken);
-                    break;
+                    var unreadResult = await _gmailClient.MarkMessagesUnreadAsync(ids, cancellationToken);
+                    await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.MarkUnread, unreadResult.SucceededMessageIds, null, cancellationToken);
+                    return ToBulkResult(ids.Count, unreadResult);
                 case CleanupBulkAction.MoveToLabel:
                     if (!string.IsNullOrWhiteSpace(newLabelName)) targetLabelId = (await _gmailClient.CreateLabelAsync(newLabelName, cancellationToken)).Id;
                     if (string.IsNullOrWhiteSpace(targetLabelId)) throw new InvalidOperationException("A Gmail label is required.");
-                    await _gmailClient.MoveMessagesToLabelAsync(ids, targetLabelId, cancellationToken);
-                    await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.MoveToLabel, ids, targetLabelId, cancellationToken);
-                    break;
+                    var moveResult = await _gmailClient.MoveMessagesToLabelAsync(ids, targetLabelId, cancellationToken);
+                    await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.MoveToLabel, moveResult.SucceededMessageIds, targetLabelId, cancellationToken);
+                    return ToBulkResult(ids.Count, moveResult);
             }
             return GmailBulkActionResult.Success(ids);
         }
@@ -55,6 +55,9 @@ public sealed class GmailBulkActionService
             return new GmailBulkActionResult(ids.Count, 0, ids.Count, ids, [ex.Message]);
         }
     }
+
+    private static GmailBulkActionResult ToBulkResult(int requested, GmailActionResult result)
+        => new(requested, result.TotalSucceeded, result.TotalFailed, result.FailedMessageIds, result.ErrorMessages);
 
     public static CleanupBulkAction FromLegacyAction(MailBulkAction action) => action switch
     {

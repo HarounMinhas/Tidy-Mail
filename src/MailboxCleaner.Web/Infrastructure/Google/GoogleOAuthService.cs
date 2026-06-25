@@ -13,9 +13,6 @@ public sealed class GoogleOAuthService : IGoogleOAuthService
     public GoogleOAuthService(IOptions<GoogleOAuthOptions> options)
     {
         _options = options.Value;
-
-        Console.WriteLine($"[OAuth] ClientId loaded: '{_options.ClientId}'");
-
     }
 
     public string BuildAuthorizationUrl(string state)
