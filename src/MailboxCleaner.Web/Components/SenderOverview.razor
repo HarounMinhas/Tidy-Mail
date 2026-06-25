@@ -169,8 +169,12 @@ else
                 <div class="row g-2 align-items-end">
                     <div class="col-md-6">
                         <label class="form-label">Destination Gmail label</label>
-                        <select class="form-select" @bind="selectedDestinationLabelId">
-                            @foreach (var label in existingLabels)
+                        <select class="form-select" @bind="selectedDestinationLabelId" disabled="@(!MoveDestinationLabels.Any())">
+                            @if (!MoveDestinationLabels.Any())
+                            {
+                                <option value="">No user labels available</option>
+                            }
+                            @foreach (var label in MoveDestinationLabels)
                             {
                                 <option value="@label.Id">@label.Name</option>
                             }
@@ -184,7 +188,7 @@ else
             }
 
             <div class="mt-3 d-flex gap-2">
-                <button class="btn btn-success" disabled="@actionInProgress" @onclick="ConfirmAction">@(actionInProgress ? "Working…" : "Confirm")</button>
+                <button class="btn btn-success" disabled="@(!CanConfirmAction)" @onclick="ConfirmAction">@(actionInProgress ? "Working…" : "Confirm")</button>
                 <button class="btn btn-outline-secondary" @onclick="CancelAction">Cancel</button>
             </div>
         </div>
@@ -231,6 +235,17 @@ else
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .OrderBy(folder => folder);
 
+    private IReadOnlyList<MailboxCleaner.Web.Infrastructure.Google.GmailLabel> MoveDestinationLabels => existingLabels
+        .Where(label => !label.IsSystemLabel)
+        .OrderBy(label => label.Name)
+        .ToList();
+
+    private bool CanConfirmAction => !actionInProgress
+        && pendingAction.HasValue
+        && actionPreview is not null
+        && actionPreview.SelectedCount > 0
+        && (pendingAction != MailBulkAction.Move || !string.IsNullOrWhiteSpace(newFolderName) || !string.IsNullOrWhiteSpace(selectedDestinationLabelId));
+
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
@@ -245,7 +260,7 @@ else
         allMessages = (await OverviewService.GetMailItemsAsync(CancellationToken.None)).ToList();
         allSenders = BuildSenderStats(allMessages);
         existingLabels = (await OverviewService.GetLabelsAsync(CancellationToken.None)).ToList();
-        selectedDestinationLabelId = existingLabels.FirstOrDefault(label => label.Id == "INBOX")?.Id ?? existingLabels.FirstOrDefault()?.Id ?? string.Empty;
+        selectedDestinationLabelId = MoveDestinationLabels.FirstOrDefault()?.Id ?? string.Empty;
 
         engine = new MailManagementEngine(allMessages);
 
@@ -337,7 +352,9 @@ else
         }
         catch (Exception ex)
         {
-            errorMessage = ex.Message;
+            errorMessage = $"{ex.Message} Refreshing Gmail metadata to reflect any completed changes…";
+            await RefreshAsync();
+            errorMessage = $"{ex.Message} The mailbox was refreshed to reflect any changes that completed before the failure.";
         }
         finally
         {
