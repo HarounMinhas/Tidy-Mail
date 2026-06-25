@@ -1,0 +1,23 @@
+@using MailboxCleaner.Web.Application.MailboxScanning
+
+<div class="scan-progress">
+    <div class="d-flex justify-content-between mb-1">
+        <strong>@State.StatusMessage</strong>
+        <span>@State.ProgressPercent%</span>
+    </div>
+    <div class="progress" role="progressbar" aria-valuenow="@State.ProgressPercent" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress-bar" style="width:@State.ProgressPercent%"></div>
+    </div>
+    <div class="small text-muted mt-2">
+        Scanned @State.ScannedMessages messages
+        @if (State.TotalDiscoveredMessages.HasValue)
+        {
+            <span> of @State.TotalDiscoveredMessages.Value discovered</span>
+        }
+        <span> · Gmail page @State.CurrentPage</span>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public MailboxScanState State { get; set; } = new();
+}

@@ -1,0 +1,75 @@
+@using MailboxCleaner.Web.Application.Cleanup
+@using MailboxCleaner.Web.Application.MailboxScanning
+@using MailboxCleaner.Web.Application.MailboxStats
+@inject IMailboxMetadataStore MetadataStore
+@inject MailboxStatsService StatsService
+@inject CleanupSuggestionService SuggestionService
+
+@if (stats is null)
+{
+    <div class="alert alert-info">Loading dashboard from local metadata cache…</div>
+}
+else
+{
+    <div class="mb-4">
+        <h2>Mailbox cleanup dashboard</h2>
+        <p class="text-muted">Dashboard statistics, filters, and suggestions are calculated from local metadata only. Gmail is called again only after you confirm a write action.</p>
+        <div class="row g-3">
+            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.TotalScannedMessages</strong><br />Scanned</div></div></div>
+            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.ReadCount</strong><br />Read</div></div></div>
+            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.UnreadCount</strong><br />Unread</div></div></div>
+            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.MessagesWithAttachments</strong><br />Attachments</div></div></div>
+            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.MessagesOlderThanSixMonths</strong><br />6+ months</div></div></div>
+            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.MessagesOlderThanOneYear</strong><br />1+ year</div></div></div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">Cleanup suggestions</div>
+                <div class="card-body">
+                    @if (!suggestions.Any())
+                    {
+                        <p class="text-muted">No cleanup suggestions yet.</p>
+                    }
+                    @foreach (var suggestion in suggestions.Take(6))
+                    {
+                        <div class="border-bottom pb-2 mb-2">
+                            <strong>@suggestion.Title</strong> <span class="badge text-bg-secondary">@suggestion.RiskLevel</span>
+                            <div>@suggestion.Explanation</div>
+                            <small>@suggestion.MessageCount messages · Suggested action: @suggestion.SuggestedAction</small>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">Top domains</div>
+                <div class="card-body">
+                    @foreach (var domain in stats.TopDomains.Take(10))
+                    {
+                        <div class="d-flex justify-content-between"><span>@domain.Domain</span><span>@domain.TotalCount</span></div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <SenderOverview />
+}
+
+@code {
+    [Parameter] public string UserId { get; set; } = "session";
+    private MailboxStats? stats;
+    private IReadOnlyList<CleanupSuggestion> suggestions = Array.Empty<CleanupSuggestion>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var scan = await MetadataStore.GetCurrentScanAsync(UserId, CancellationToken.None);
+        var metadata = await MetadataStore.GetMetadataAsync(UserId, CancellationToken.None);
+        stats = StatsService.Build(metadata, scan?.CompletedAt);
+        suggestions = SuggestionService.Generate(metadata);
+    }
+}

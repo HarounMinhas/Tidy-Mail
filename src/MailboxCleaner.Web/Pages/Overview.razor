@@ -1,13 +1,41 @@
 @page "/overview"
+@using MailboxCleaner.Web.Application.MailboxScanning
 @inject IHttpContextAccessor HttpContextAccessor
+@inject IMailboxMetadataStore MetadataStore
 
 @if (HttpContextAccessor.HttpContext?.User?.Identity?.IsAuthenticated == true)
 {
-    <SenderOverview />
+    @if (showScan)
+    {
+        <MailboxScan UserId="@UserId" />
+    }
+    else
+    {
+        @if (scanState is not null && MetadataStore.IsScanStale(scanState, TimeSpan.FromHours(12)))
+        {
+            <div class="alert alert-warning d-flex justify-content-between align-items-center">
+                <span>Your last scan is stale. You can keep using cached metadata or rescan.</span>
+                <button class="btn btn-sm btn-outline-primary" @onclick="() => showScan = true">Rescan</button>
+            </div>
+        }
+        <MailboxDashboard UserId="@UserId" />
+    }
 }
 else
 {
     <div class="alert alert-info">
-        Please <a href="/auth/login">login with Google</a> to view your sender overview.
+        Please <a href="/auth/login">login with Google</a> to scan your mailbox.
     </div>
+}
+
+@code {
+    private MailboxScanState? scanState;
+    private bool showScan;
+    private string UserId => "session";
+
+    protected override async Task OnInitializedAsync()
+    {
+        scanState = await MetadataStore.GetCurrentScanAsync(UserId, CancellationToken.None);
+        showScan = scanState is null || scanState.Status != MailboxScanStatus.Completed;
+    }
 }

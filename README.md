@@ -1,39 +1,37 @@
 # Tidy Mail (MailboxCleaner)
 
-Tidy Mail is a .NET 8 Blazor Server application for reviewing Gmail sender activity and applying Gmail-native cleanup actions while keeping Gmail reads metadata-only.
+Tidy Mail is a .NET 8 Blazor Server Gmail cleanup assistant for people with chaotic, overloaded, or hoarded inboxes. The product flow is now scan-first: sign in with Google, run a mailbox metadata scan, review dashboard statistics and cleanup suggestions from local cache, preview a write action, confirm it, then apply the Gmail action by message ID and update the local metadata cache.
 
-## Implemented features
+## Product flow
 
-- Google OAuth2 login with Gmail modify scope.
-- Gmail API metadata loading with no message body retrieval. The app requests Gmail message `metadata` format and only asks for `From`, `Subject`, and `Date` headers.
-- Session-scoped metadata and label caching to reduce repeated Gmail API calls; write actions invalidate cache and trigger a refresh.
-- Sender overview grouped by sender email with expandable message rows.
-- Filtering by sender/name, domain, keyword, read/unread state, folder/label, attachments, and noreply senders.
-- Cached autocomplete suggestions for sender, sender name, and subject values.
-- Sorting by sender name, email, message count, newest message, oldest message, ascending or descending.
-- Bulk Gmail actions:
-  - Move messages to Gmail Trash.
-  - Archive messages by removing `INBOX`.
-  - Mark read by removing `UNREAD`.
-  - Mark unread by adding `UNREAD`.
-  - Move to an existing Gmail label.
-  - Create a new Gmail label and move selected messages to it.
-- Professional UX states for loading, progress, disabled bulk actions, confirmation, success, and failure messages.
-- Retry and user-facing error handling around Gmail API operations.
-- Unit/integration-style tests for filtering, grouping-oriented engine behavior, and Gmail action orchestration.
+1. Sign in with Google.
+2. If no recent local scan exists, Tidy Mail shows a mailbox scan screen.
+3. During scanning, the UI explains that only metadata is fetched and shows status, scanned count, total discovered messages when known, current Gmail page, and a progress bar.
+4. Metadata is cached locally for the signed-in session/user.
+5. Dashboard statistics, sender grouping, filtering, sorting, selections, and cleanup suggestions run from local metadata only.
+6. Gmail is called again only when the user confirms a write action.
+7. After Gmail confirms a write action, local metadata is updated for the successful message IDs.
 
-## Architecture
+## Metadata-only privacy approach
 
-The application preserves a simple layered structure:
+Tidy Mail never fetches or stores Gmail message bodies. Gmail reads use message metadata format and request only cleanup-safe metadata:
 
-- **Components** (`src/MailboxCleaner.Web/Components`) render the Blazor UI and keep interaction state.
-- **Application services** (`src/MailboxCleaner.Web/Application/Services`) aggregate Gmail metadata, filter/sort data, and orchestrate Gmail actions.
-- **Infrastructure** (`src/MailboxCleaner.Web/Infrastructure/Google`) owns OAuth and Gmail API integration.
-- **Domain/DTOs** hold sender identifiers, sender statistics, and message metadata projections.
+- Message ID
+- Thread ID
+- Sender name and email
+- Sender domain
+- Subject
+- Received date
+- Read/unread state
+- Gmail labels
+- Attachment presence
+- Size estimate
+- Scan timestamp
+- Optional classification headers: `List-Unsubscribe` and `Precedence`
 
-`GmailClient` is the only class that talks directly to the Gmail API. UI and application services depend on `IGmailClient`, which makes Gmail action orchestration testable without network calls.
+The app does not display or persist full email contents. Message IDs are used only to apply Gmail write actions after explicit confirmation.
 
-## OAuth and scopes
+## OAuth and Gmail scopes
 
 Configure Google OAuth credentials with a redirect URI such as:
 
@@ -47,26 +45,62 @@ The default scope set is:
 openid email profile https://www.googleapis.com/auth/gmail.modify
 ```
 
-`gmail.modify` is required because the app performs Gmail-native trash, archive, read/unread, and label modifications. The app still reads message metadata only and does not fetch message bodies.
+Scopes are used as follows:
 
-## Privacy and metadata-only approach
+- `openid email profile`: signs the user in and identifies the current session.
+- `gmail.modify`: required for archive, mark read, mark unread, label changes, and moving messages to trash. Reads still use metadata-only Gmail requests.
 
-Tidy Mail intentionally avoids email body access. Metadata loading uses Gmail message metadata requests and limits headers to:
+Access tokens are refreshed through a `UserCredential` built from the stored token set. If Google reports an invalid or revoked refresh token, stored tokens are cleared so the user can safely sign in again.
 
-- `From`
-- `Subject`
-- `Date`
+## How scanning works
 
-Message IDs are used only when Gmail write operations require them. The app derives read state, archive state, folders, labels, and attachment presence from Gmail labels and payload metadata.
+Gmail list responses provide message IDs and thread IDs rather than all metadata needed for cleanup. Tidy Mail therefore pages through Gmail IDs and fetches message metadata for each message using Gmail metadata format. The scanner is designed around local cache and progress reporting so large mailboxes remain usable even though per-message metadata calls are still required.
 
-## Performance notes
+Current scan behavior:
 
-- Gmail message lists are paged through incrementally instead of requesting an unbounded page.
-- Message metadata fetches are concurrency-limited.
-- Cancellation tokens are propagated through Gmail list, get, label, and write calls.
-- Metadata and labels are cached per scoped Gmail client session.
-- Sender grouping and autocomplete use precomputed collections to avoid repeated LINQ work during UI interactions.
-- Filtering and sorting operate over local metadata only, so typing remains responsive for large metadata sets.
+- Gmail list page size is configured for up to 500 messages.
+- Metadata reads request `From`, `Subject`, `Date`, `List-Unsubscribe`, and `Precedence` headers.
+- Metadata fetching is concurrency-limited.
+- Scan state tracks scan ID, user/session, start/completion time, page token, discovered/scanned counts, status, errors, and cached metadata.
+- A completed scan is reused instead of rescanning on every page load.
+- Stale scans can be refreshed manually.
+
+## Dashboard and cleanup suggestions
+
+The dashboard uses local metadata only to show:
+
+- Total scanned messages
+- Read and unread counts
+- Messages with attachments
+- Messages older than 6 months and 1 year
+- Top senders and domains
+- Top noreply senders
+- Likely newsletters
+- Largest cleanup groups
+- Recent scan date
+
+Cleanup suggestions are explainable and metadata-only. Suggestions include old read mail, old unread mail, old newsletters, high-volume noreply senders, notification senders, bulk senders, and high-volume domains. Tidy Mail never auto-deletes anything; every action requires preview and confirmation.
+
+## Filtering, sorting, and selection
+
+Filtering and selection operate against the local metadata cache and do not call Gmail. Supported metadata filters include sender, domain, subject keyword, read/unread, attachment presence, age buckets, label, noreply, newsletter-like, and notification-like messages.
+
+Sorting supports sender name, email, message date, unread state, attachment state, and sender/domain grouping helpers.
+
+## Bulk Gmail actions
+
+Before a Gmail write action, the UI builds a preview with the action, affected count, top affected senders, sample messages, and a risk warning for trash. Empty selections cannot be confirmed.
+
+Supported actions:
+
+- Trash selected messages
+- Archive selected messages by removing `INBOX`
+- Mark selected messages read by removing `UNREAD`
+- Mark selected messages unread by adding `UNREAD`
+- Move selected messages to an existing label
+- Create a label and move selected messages to it
+
+Batch modify is used for Gmail label modifications where possible with chunks of up to 1000 message IDs. Trash keeps Gmail trash semantics. Result objects report total requested, succeeded, failed, failed IDs, error messages, and partial success state. Local cache updates are applied only for successful message IDs.
 
 ## Prerequisites
 
@@ -101,9 +135,22 @@ dotnet build -c Release
 dotnet test
 ```
 
-## Remaining limitations and future work
+## Benchmarks
 
-- Gmail token refresh is not yet fully automated when an access token expires; users may need to sign in again.
-- Very large mailboxes still require one metadata request per message ID because Gmail list responses do not include all required metadata.
-- Benchmarks are documented in the performance notes and covered by scalable code paths, but no dedicated BenchmarkDotNet project is included yet.
-- Bulk Gmail actions currently execute per message with retry; Gmail batch APIs could further reduce round trips in a future iteration.
+A BenchmarkDotNet project is available at `benchmarks/MailboxCleaner.Benchmarks`.
+
+Run benchmarks with:
+
+```bash
+dotnet run -c Release --project benchmarks/MailboxCleaner.Benchmarks/MailboxCleaner.Benchmarks.csproj
+```
+
+Benchmarks cover filtering, sender grouping, domain grouping, autocomplete, bulk selection, cleanup suggestion generation, and dashboard statistics/metadata mapping over generated datasets of 100, 1,000, 10,000, and 50,000 messages.
+
+## Known limitations and future improvements
+
+- Gmail list responses only return IDs/thread IDs, so per-message metadata fetches are still required.
+- Very large mailboxes benefit from caching and progressive scan, but initial scans still take time.
+- Future incremental sync can use Gmail history IDs to avoid full rescans.
+- Session/memory cache is suitable for MVP; SQLite or a database should replace it for durable multi-device use.
+- Trash APIs have different semantics than label modification; partial failure reporting remains important for large cleanup operations.
