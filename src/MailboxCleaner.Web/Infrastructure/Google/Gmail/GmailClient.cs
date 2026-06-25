@@ -122,7 +122,23 @@ public sealed class GmailClient : IGmailClient
     public Task ArchiveMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: Array.Empty<string>(), removeLabels: ["INBOX"], cancellationToken);
     public Task MarkMessagesReadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: Array.Empty<string>(), removeLabels: ["UNREAD"], cancellationToken);
     public Task MarkMessagesUnreadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: ["UNREAD"], removeLabels: Array.Empty<string>(), cancellationToken);
-    public Task MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: [labelId], removeLabels: ShouldRemoveInboxForMove(labelId) ? ["INBOX"] : Array.Empty<string>(), cancellationToken);
+
+    public async Task MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken)
+    {
+        var metadataById = (await FetchMessageMetadataAsync(cancellationToken))
+            .GroupBy(message => message.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var labelsById = (await FetchLabelsAsync(cancellationToken))
+            .GroupBy(label => label.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        await ExecuteBatchAsync(messageIds, (service, id) =>
+        {
+            var removeLabels = ResolveLabelsToRemoveForMove(metadataById.TryGetValue(id, out var metadata) ? metadata.Labels : Array.Empty<string>(), labelId, labelsById);
+            var request = new ModifyMessageRequest { AddLabelIds = [labelId], RemoveLabelIds = removeLabels.ToList() };
+            return service.Users.Messages.Modify(request, "me", id).ExecuteAsync(cancellationToken);
+        }, cancellationToken);
+    }
 
     public async Task<GmailLabel> CreateLabelAsync(string labelName, CancellationToken cancellationToken)
     {
@@ -170,7 +186,33 @@ public sealed class GmailClient : IGmailClient
 
     private async Task<GmailService> CreateRequiredServiceAsync(CancellationToken cancellationToken) => await CreateServiceAsync(cancellationToken) ?? throw new GmailOperationException("Gmail token missing or expired. Please sign in again.", new InvalidOperationException("Missing Gmail token."));
 
+    private static IReadOnlyCollection<string> ResolveLabelsToRemoveForMove(IReadOnlyCollection<string> currentLabels, string destinationLabelId, IReadOnlyDictionary<string, GmailLabel> labelsById) => currentLabels
+        .Where(labelId => ShouldRemoveLabelForMove(labelId, destinationLabelId, labelsById))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private static bool ShouldRemoveLabelForMove(string currentLabelId, string destinationLabelId, IReadOnlyDictionary<string, GmailLabel> labelsById)
+    {
+        if (currentLabelId.Equals(destinationLabelId, StringComparison.OrdinalIgnoreCase)) return false;
+        if (currentLabelId.Equals("INBOX", StringComparison.OrdinalIgnoreCase)) return ShouldRemoveInboxForMove(destinationLabelId);
+        if (labelsById.TryGetValue(currentLabelId, out var label)) return !label.IsSystemLabel;
+        return !IsKnownSystemLabel(currentLabelId);
+    }
+
     private static bool ShouldRemoveInboxForMove(string labelId) => !labelId.Equals("INBOX", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsKnownSystemLabel(string labelId) => labelId.Equals("UNREAD", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("SENT", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("DRAFT", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("TRASH", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("SPAM", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("STARRED", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("IMPORTANT", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("CATEGORY_PERSONAL", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("CATEGORY_SOCIAL", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("CATEGORY_PROMOTIONS", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("CATEGORY_UPDATES", StringComparison.OrdinalIgnoreCase)
+        || labelId.Equals("CATEGORY_FORUMS", StringComparison.OrdinalIgnoreCase);
 
     private static Task<Message> FetchMetadataAsync(GmailService service, string messageId, CancellationToken cancellationToken)
     {
