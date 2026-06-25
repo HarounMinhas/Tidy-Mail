@@ -1,4 +1,8 @@
 using MailboxCleaner.Web.Application.Services;
+using MailboxCleaner.Web.Application.Cleanup;
+using MailboxCleaner.Web.Application.Filtering;
+using MailboxCleaner.Web.Application.MailboxScanning;
+using MailboxCleaner.Web.Application.MailboxStats;
 using MailboxCleaner.Web.Infrastructure.Google;
 using MailboxCleaner.Web.Infrastructure.Security;
 using MailboxCleaner.Web.Infrastructure.Google.Gmail;
@@ -36,7 +40,17 @@ builder.Services.AddControllers();
 
 builder.Services.AddScoped<ITokenStore, SessionTokenStore>();
 builder.Services.AddScoped<IGoogleOAuthService, GoogleOAuthService>();
+builder.Services.AddScoped<IGmailCredentialFactory, GoogleUserCredentialFactory>();
 builder.Services.AddScoped<IGmailClient, GmailClient>();
+builder.Services.AddSingleton<IMailboxMetadataStore, MailboxMetadataStore>();
+builder.Services.AddScoped<IUserMailboxKeyProvider, UserMailboxKeyProvider>();
+builder.Services.AddScoped<MailboxUserContext>();
+builder.Services.AddScoped<MailboxScanService>();
+builder.Services.AddScoped<MailboxStatsService>();
+builder.Services.AddScoped<CleanupSuggestionService>();
+builder.Services.AddScoped<MailboxFilterService>();
+builder.Services.AddScoped<BulkActionPreviewService>();
+builder.Services.AddScoped<GmailBulkActionService>();
 builder.Services.AddScoped<ISenderAggregationService, SenderAggregationService>();
 builder.Services.AddScoped<ISenderOverviewService, SenderOverviewService>();
 

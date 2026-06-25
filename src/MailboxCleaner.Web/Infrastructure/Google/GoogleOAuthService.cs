@@ -52,6 +52,6 @@ public sealed class GoogleOAuthService : IGoogleOAuthService
             _options.RedirectUri,
             cancellationToken);
 
-        return new TokenSet(token.AccessToken, token.RefreshToken ?? string.Empty, token.IssuedUtc.AddSeconds(token.ExpiresInSeconds ?? 0));
+        return new TokenSet(token.AccessToken, token.RefreshToken ?? string.Empty, token.IssuedUtc.AddSeconds(token.ExpiresInSeconds ?? 0), token.IdToken);
     }
 }

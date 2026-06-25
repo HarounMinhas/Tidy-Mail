@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Text;
+using System.Text.Json;
 using MailboxCleaner.Web.Infrastructure.Google;
 using MailboxCleaner.Web.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication;
@@ -42,11 +44,21 @@ public sealed class GoogleAuthController : ControllerBase
         var tokenSet = await _oauthService.ExchangeCodeAsync(code, cancellationToken);
         await _tokenStore.SaveTokensAsync(tokenSet, cancellationToken);
 
+        var googleIdentity = GoogleIdentityClaims.FromIdToken(tokenSet.IdToken);
         var claims = new List<Claim>
         {
-            new(ClaimTypes.Name, "Google User"),
-            new(ClaimTypes.NameIdentifier, "google-user")
+            new(ClaimTypes.Name, googleIdentity.Name ?? googleIdentity.Email ?? "Google User")
         };
+
+        if (!string.IsNullOrWhiteSpace(googleIdentity.Subject))
+        {
+            claims.Add(new Claim(ClaimTypes.NameIdentifier, googleIdentity.Subject));
+        }
+
+        if (!string.IsNullOrWhiteSpace(googleIdentity.Email))
+        {
+            claims.Add(new Claim(ClaimTypes.Email, googleIdentity.Email));
+        }
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
@@ -60,5 +72,53 @@ public sealed class GoogleAuthController : ControllerBase
         await _tokenStore.ClearAsync(cancellationToken);
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         return Redirect("/");
+    }
+
+    private sealed record GoogleIdentityClaims(string? Subject, string? Email, string? Name)
+    {
+        public static GoogleIdentityClaims FromIdToken(string? idToken)
+        {
+            if (string.IsNullOrWhiteSpace(idToken))
+            {
+                return new GoogleIdentityClaims(null, null, null);
+            }
+
+            var parts = idToken.Split('.');
+            if (parts.Length < 2)
+            {
+                return new GoogleIdentityClaims(null, null, null);
+            }
+
+            try
+            {
+                var json = Encoding.UTF8.GetString(Base64UrlDecode(parts[1]));
+                using var document = JsonDocument.Parse(json);
+                var root = document.RootElement;
+                return new GoogleIdentityClaims(
+                    TryGetString(root, "sub"),
+                    TryGetString(root, "email"),
+                    TryGetString(root, "name"));
+            }
+            catch (JsonException)
+            {
+                return new GoogleIdentityClaims(null, null, null);
+            }
+            catch (FormatException)
+            {
+                return new GoogleIdentityClaims(null, null, null);
+            }
+        }
+
+        private static string? TryGetString(JsonElement element, string propertyName)
+            => element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+                ? property.GetString()
+                : null;
+
+        private static byte[] Base64UrlDecode(string value)
+        {
+            var padded = value.Replace('-', '+').Replace('_', '/');
+            padded = padded.PadRight(padded.Length + (4 - padded.Length % 4) % 4, '=');
+            return Convert.FromBase64String(padded);
+        }
     }
 }

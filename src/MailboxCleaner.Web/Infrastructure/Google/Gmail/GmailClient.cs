@@ -1,22 +1,20 @@
-using Google.Apis.Auth.OAuth2;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Gmail.v1.Data;
 using Google.Apis.Services;
-using MailboxCleaner.Web.Infrastructure.Security;
 
 namespace MailboxCleaner.Web.Infrastructure.Google.Gmail;
 
 public sealed class GmailClient : IGmailClient
 {
-    private const int MaxConcurrency = 8;
-    private const int PageSize = 100;
+    private const int MaxConcurrency = 10;
+    private const int PageSize = 500;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
-    private readonly ITokenStore _tokenStore;
+    private readonly IGmailCredentialFactory _credentialFactory;
     private IReadOnlyList<GmailMessageMetadata>? _metadataCache;
     private IReadOnlyList<GmailLabel>? _labelCache;
     private DateTimeOffset _metadataCacheExpiresAt;
 
-    public GmailClient(ITokenStore tokenStore) => _tokenStore = tokenStore;
+    public GmailClient(IGmailCredentialFactory credentialFactory) => _credentialFactory = credentialFactory;
 
     public async Task<IReadOnlyList<string>> FetchFromHeadersAsync(CancellationToken cancellationToken)
     {
@@ -74,7 +72,9 @@ public sealed class GmailClient : IGmailClient
                     var dateValue = message.Payload?.Headers?.FirstOrDefault(h => h.Name == "Date")?.Value;
                     var receivedAt = DateTimeOffset.TryParse(dateValue, out var parsedDate) ? parsedDate : (DateTimeOffset?)null;
                     var labels = message.LabelIds?.ToList() ?? new List<string>();
-                    var item = new GmailMessageMetadata(message.Id ?? messageId, fromHeader, subject, receivedAt, labels.Contains("UNREAD", StringComparer.OrdinalIgnoreCase) is false, ContainsAttachment(message.Payload), labels);
+                    var listUnsubscribe = message.Payload?.Headers?.FirstOrDefault(h => h.Name == "List-Unsubscribe")?.Value;
+                    var precedence = message.Payload?.Headers?.FirstOrDefault(h => h.Name == "Precedence")?.Value;
+                    var item = new GmailMessageMetadata(message.Id ?? messageId, fromHeader, subject, receivedAt, labels.Contains("UNREAD", StringComparer.OrdinalIgnoreCase) is false, ContainsAttachment(message.Payload), labels, message.ThreadId, message.SizeEstimate, listUnsubscribe, precedence, DateTimeOffset.UtcNow);
                     lock (metadataItems)
                     {
                         metadataItems.Add(item);
@@ -151,8 +151,36 @@ public sealed class GmailClient : IGmailClient
 
     private async Task ModifyMessagesAsync(IReadOnlyCollection<string> messageIds, IReadOnlyCollection<string> addLabels, IReadOnlyCollection<string> removeLabels, CancellationToken cancellationToken)
     {
-        var request = new ModifyMessageRequest { AddLabelIds = addLabels.ToList(), RemoveLabelIds = removeLabels.ToList() };
-        await ExecuteBatchAsync(messageIds, (service, id) => service.Users.Messages.Modify(request, "me", id).ExecuteAsync(cancellationToken), cancellationToken);
+        await ExecuteBatchModifyAsync(messageIds, addLabels, removeLabels, cancellationToken);
+    }
+
+
+    private async Task ExecuteBatchModifyAsync(IReadOnlyCollection<string> messageIds, IReadOnlyCollection<string> addLabels, IReadOnlyCollection<string> removeLabels, CancellationToken cancellationToken)
+    {
+        if (messageIds.Count == 0) return;
+        var service = await CreateRequiredServiceAsync(cancellationToken);
+        try
+        {
+            foreach (var chunk in messageIds.Distinct(StringComparer.OrdinalIgnoreCase).Chunk(1000))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var request = new BatchModifyMessagesRequest
+                {
+                    Ids = chunk.ToList(),
+                    AddLabelIds = addLabels.ToList(),
+                    RemoveLabelIds = removeLabels.ToList()
+                };
+                await ExecuteWithRetryAsync(() => service.Users.Messages.BatchModify(request, "me").ExecuteAsync(cancellationToken), cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new GmailOperationException("Gmail batch action failed. Gmail metadata cache was invalidated before reporting this error.", ex);
+        }
+        finally
+        {
+            InvalidateCache();
+        }
     }
 
     private async Task ExecuteBatchAsync<T>(IReadOnlyCollection<string> messageIds, Func<GmailService, string, Task<T>> action, CancellationToken cancellationToken)
@@ -179,9 +207,9 @@ public sealed class GmailClient : IGmailClient
 
     private async Task<GmailService?> CreateServiceAsync(CancellationToken cancellationToken)
     {
-        var tokens = await _tokenStore.GetTokensAsync(cancellationToken);
-        if (tokens is null || string.IsNullOrWhiteSpace(tokens.AccessToken)) return null;
-        return new GmailService(new BaseClientService.Initializer { HttpClientInitializer = GoogleCredential.FromAccessToken(tokens.AccessToken), ApplicationName = "MailboxCleaner" });
+        var credential = await _credentialFactory.CreateCredentialAsync(cancellationToken);
+        if (credential is null) return null;
+        return new GmailService(new BaseClientService.Initializer { HttpClientInitializer = credential, ApplicationName = "MailboxCleaner" });
     }
 
     private async Task<GmailService> CreateRequiredServiceAsync(CancellationToken cancellationToken) => await CreateServiceAsync(cancellationToken) ?? throw new GmailOperationException("Gmail token missing or expired. Please sign in again.", new InvalidOperationException("Missing Gmail token."));
@@ -218,7 +246,8 @@ public sealed class GmailClient : IGmailClient
     {
         var getRequest = service.Users.Messages.Get("me", messageId);
         getRequest.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Metadata;
-        getRequest.MetadataHeaders = new[] { "From", "Subject", "Date" };
+        getRequest.MetadataHeaders = new[] { "From", "Subject", "Date", "List-Unsubscribe", "Precedence" };
+        getRequest.Fields = "id,threadId,labelIds,sizeEstimate,payload(headers(name,value),filename,body/attachmentId,parts(filename,body/attachmentId,parts)))";
         return ExecuteWithRetryAsync(() => getRequest.ExecuteAsync(cancellationToken), cancellationToken);
     }
 
