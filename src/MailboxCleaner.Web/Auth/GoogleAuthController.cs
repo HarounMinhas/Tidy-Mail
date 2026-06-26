@@ -41,13 +41,18 @@ public sealed class GoogleAuthController : ControllerBase
     public async Task<IActionResult> Callback([FromQuery] string? code, [FromQuery] string? state, [FromQuery] string? error, CancellationToken cancellationToken)
     {
         var expectedState = HttpContext.Session.GetString(StateKey);
+        if (string.IsNullOrWhiteSpace(expectedState) || expectedState != state)
+        {
+            return BadRequest("Invalid state.");
+        }
+
         HttpContext.Session.Remove(StateKey);
         if (!string.IsNullOrWhiteSpace(error))
         {
             return BadRequest("Google sign-in was cancelled or denied.");
         }
 
-        if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(expectedState) || expectedState != state)
+        if (string.IsNullOrWhiteSpace(code))
         {
             return BadRequest("Invalid state.");
         }

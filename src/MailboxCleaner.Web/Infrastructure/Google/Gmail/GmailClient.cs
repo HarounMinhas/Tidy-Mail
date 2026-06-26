@@ -96,6 +96,10 @@ public sealed class GmailClient : IGmailClient
             _metadataCacheExpiresAt = DateTimeOffset.UtcNow.Add(CacheDuration);
             return _metadataCache;
         }
+        catch (GmailOperationException)
+        {
+            throw;
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             throw new GmailOperationException("Unable to load Gmail metadata. Please retry or sign in again.", ex);

@@ -130,6 +130,7 @@ public sealed class MailboxWorkflowServiceTests
         var state = await service.ScanAsync("user", null, CancellationToken.None);
 
         Assert.Equal(MailboxScanStatus.Failed, state.Status);
+        Assert.Contains("Unable to load complete Gmail metadata", state.ErrorMessage);
         var cached = await store.GetMetadataAsync("user", CancellationToken.None);
         Assert.Equal(existing.Count, cached.Count);
         Assert.Contains(cached, message => message.MessageId == "m4");
