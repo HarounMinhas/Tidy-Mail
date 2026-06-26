@@ -120,6 +120,22 @@ public sealed class MailboxWorkflowServiceTests
     }
 
     [Fact]
+    public async Task ScanAsync_WhenMetadataFetchFails_PreservesExistingCacheAndMarksFailed()
+    {
+        var store = new MailboxMetadataStore();
+        var existing = CreateMetadata(DateTimeOffset.UtcNow);
+        await store.ReplaceMetadataAsync("user", existing, CancellationToken.None);
+        var service = new MailboxScanService(new FailingMetadataGmailClient(), store);
+
+        var state = await service.ScanAsync("user", null, CancellationToken.None);
+
+        Assert.Equal(MailboxScanStatus.Failed, state.Status);
+        var cached = await store.GetMetadataAsync("user", CancellationToken.None);
+        Assert.Equal(existing.Count, cached.Count);
+        Assert.Contains(cached, message => message.MessageId == "m4");
+    }
+
+    [Fact]
     public void UserMailboxKeyProvider_UsesRealClaimsAndFallsBackForPlaceholderGoogleUser()
     {
         var contextAccessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
@@ -159,6 +175,19 @@ public sealed class MailboxWorkflowServiceTests
         new("m3", "t2", "Alerts", "noreply@service.com", "service.com", "Alert", now.AddYears(-2), false, ["INBOX", "UNREAD"], false, 100, now),
         new("m4", "t3", "Human", "person@corp.com", "corp.com", "Meeting", now, false, ["INBOX", "UNREAD"], false, 100, now)
     ];
+
+    private sealed class FailingMetadataGmailClient : IGmailClient
+    {
+        public Task<IReadOnlyList<string>> FetchFromHeadersAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        public Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(CancellationToken cancellationToken) => throw new GmailOperationException("Unable to load complete Gmail metadata.", new InvalidOperationException("partial scan"));
+        public Task<IReadOnlyList<GmailLabel>> FetchLabelsAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<GmailLabel>>(Array.Empty<GmailLabel>());
+        public Task<GmailActionResult> TrashMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => Task.FromResult(GmailActionResult.Success(messageIds));
+        public Task<GmailActionResult> ArchiveMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => Task.FromResult(GmailActionResult.Success(messageIds));
+        public Task<GmailActionResult> MarkMessagesReadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => Task.FromResult(GmailActionResult.Success(messageIds));
+        public Task<GmailActionResult> MarkMessagesUnreadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => Task.FromResult(GmailActionResult.Success(messageIds));
+        public Task<GmailActionResult> MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken) => Task.FromResult(GmailActionResult.Success(messageIds));
+        public Task<GmailLabel> CreateLabelAsync(string labelName, CancellationToken cancellationToken) => Task.FromResult(new GmailLabel(labelName, labelName, false));
+    }
 
     private sealed class PartiallyFailingGmailClient : IGmailClient
     {

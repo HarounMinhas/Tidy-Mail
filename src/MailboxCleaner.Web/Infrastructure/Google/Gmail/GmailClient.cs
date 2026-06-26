@@ -85,9 +85,11 @@ public sealed class GmailClient : IGmailClient
                     }
                 });
 
-            if (metadataItems.IsEmpty && failures.Count > 0)
+            if (!failures.IsEmpty)
             {
-                throw new GmailOperationException("Unable to load any Gmail metadata. Please retry or sign in again.", new InvalidOperationException(string.Join("; ", failures.Take(5))));
+                throw new GmailOperationException(
+                    $"Unable to load complete Gmail metadata. {failures.Count} message metadata request(s) failed; retry to avoid using an incomplete mailbox scan.",
+                    new InvalidOperationException(string.Join("; ", failures.Take(5))));
             }
 
             _metadataCache = metadataItems.OrderByDescending(item => item.ReceivedAt).ToList();
