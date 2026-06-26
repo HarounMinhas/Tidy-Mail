@@ -14,7 +14,11 @@ public sealed class MailboxMetadataStore : IMailboxMetadataStore
 
     public Task<MailboxScanState?> GetCurrentScanAsync(string userId, CancellationToken cancellationToken)
     {
-        return Task.FromResult(_cache.TryGetValue(userId, out var cache) ? cache.State : null);
+        if (!_cache.TryGetValue(userId, out var cache)) return Task.FromResult<MailboxScanState?>(null);
+        lock (cache)
+        {
+            return Task.FromResult(cache.State);
+        }
     }
 
     public Task SaveScanStateAsync(MailboxScanState state, CancellationToken cancellationToken)
@@ -109,7 +113,10 @@ public sealed class MailboxMetadataStore : IMailboxMetadataStore
                             }
                         }
                         if (!string.IsNullOrWhiteSpace(labelId)) labels.Add(labelId);
-                        labels.Remove("INBOX");
+                        if (!string.Equals(labelId, "INBOX", StringComparison.OrdinalIgnoreCase))
+                        {
+                            labels.Remove("INBOX");
+                        }
                         break;
                 }
                 cache.Metadata[id] = message with { Labels = labels.ToList(), IsRead = !labels.Contains("UNREAD") };
