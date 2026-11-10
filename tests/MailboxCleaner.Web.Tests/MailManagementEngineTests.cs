@@ -23,6 +23,23 @@ public sealed class MailManagementEngineTests
     }
 
     [Fact]
+    public void SenderSelection_OnlySelectsVisibleMessagesWhenFiltered()
+    {
+        var engine = new MailManagementEngine(CreateDummyMessages());
+        var visible = engine.FilterMessages("", "Unread", "", null)
+            .Where(m => m.SenderEmail == "alpha@example.com")
+            .Select(m => m.Id).ToList();
+
+        engine.ToggleSenderSelection("alpha@example.com", true, visible);
+
+        Assert.Contains("m1", engine.SelectedMessageIds);
+        Assert.DoesNotContain("m2", engine.SelectedMessageIds);
+        Assert.True(engine.IsSenderFullySelected("alpha@example.com", visible));
+        Assert.False(engine.IsSenderFullySelected("alpha@example.com"));
+        Assert.Single(engine.PreviewAction(MailBulkAction.Delete).MessageIds);
+    }
+
+    [Fact]
     public void Filters_WorkForUnreadReadFolderAttachmentAndKeyword()
     {
         var engine = new MailManagementEngine(CreateDummyMessages());
