@@ -139,7 +139,7 @@ public sealed class GmailClient : IGmailClient
         _labelCache = response.Labels?.Where(label => !string.IsNullOrWhiteSpace(label.Id) && !string.IsNullOrWhiteSpace(label.Name))
             .Select(label => new GmailLabel(label.Id, label.Name, label.Type?.Equals("system", StringComparison.OrdinalIgnoreCase) == true))
             .OrderBy(label => label.Name)
-            .ToList() ?? Array.Empty<GmailLabel>();
+            .ToList() ?? new List<GmailLabel>();
         return _labelCache;
     }
 
