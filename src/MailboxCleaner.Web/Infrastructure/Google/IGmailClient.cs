@@ -4,6 +4,9 @@ public interface IGmailClient
 {
     Task<IReadOnlyList<string>> FetchFromHeadersAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(CancellationToken cancellationToken);
+    // Default implementation preserves existing fake Gmail clients in unit tests.
+    Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(IProgress<GmailScanProgress>? progress, CancellationToken cancellationToken)
+        => FetchMessageMetadataAsync(cancellationToken);
     Task<IReadOnlyList<GmailLabel>> FetchLabelsAsync(CancellationToken cancellationToken);
     Task<GmailActionResult> TrashMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken);
     Task<GmailActionResult> ArchiveMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken);
@@ -12,6 +15,8 @@ public interface IGmailClient
     Task<GmailActionResult> MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken);
     Task<GmailLabel> CreateLabelAsync(string labelName, CancellationToken cancellationToken);
 }
+
+public sealed record GmailScanProgress(int CurrentPage, int DiscoveredMessages, int ScannedMessages, bool DiscoveryComplete);
 
 public sealed record GmailLabel(string Id, string Name, bool IsSystemLabel);
 
