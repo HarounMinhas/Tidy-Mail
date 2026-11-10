@@ -344,6 +344,7 @@ public sealed class GmailClient : IGmailClient
         var ids = messageIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var succeeded = new List<string>();
         var failed = new List<string>();
+        var unknown = new List<string>();
         var errors = new List<string>();
         try
         {
@@ -363,7 +364,7 @@ public sealed class GmailClient : IGmailClient
                 }
             }
 
-            return new GmailActionResult(ids.Count, succeeded, failed, errors);
+            return new GmailActionResult(ids.Count, succeeded, failed, errors, unknown);
         }
         finally
         {
