@@ -9,7 +9,7 @@ public sealed class MailboxOperationCoordinator
 
     public async Task<IDisposable> EnterAsync(string userId, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(userId) || !userId.StartsWith("user:", StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(userId) || string.Equals(userId, "anonymous", StringComparison.OrdinalIgnoreCase))
         {
             throw new UnauthorizedAccessException("Mailbox operations require a validated account.");
         }
