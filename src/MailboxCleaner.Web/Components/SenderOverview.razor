@@ -432,6 +432,7 @@ else if (!isLoading)
             selectedDestinationLabelId = string.Empty;
 
             engine = new MailManagementEngine(allMessages);
+            suggestedSelectionCount = 0;
 
             availableDomains = allSenders.Select(sender => sender.Domain)
                 .Where(domain => !string.IsNullOrWhiteSpace(domain))
@@ -483,6 +484,7 @@ else if (!isLoading)
         var renderedSenders = filteredSenders.Select(sender => sender.Email).ToHashSet(StringComparer.OrdinalIgnoreCase);
         visibleMessageIds = filteredMessages.Where(m => renderedSenders.Contains(m.SenderEmail))
             .Select(m => m.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (showActionPane) acknowledgesHiddenSelection = false;
         querySuggestions = engine.AutocompleteSuggestions(messageQuery).ToList();
     }
 
@@ -505,6 +507,7 @@ else if (!isLoading)
             ? visibleMessages.Select(message => message.Id).ToList()
             : new List<string>();
         engine.ToggleSenderSelection(senderEmail, isChecked, visibleIds);
+        if (suggestedSelectionCount > 0) suggestedSelectionCount = engine.SelectedMessageIds.Count;
         InvalidatePreview();
     }
 
@@ -512,6 +515,7 @@ else if (!isLoading)
     {
         var visibleSenders = filteredSenders.Select(s => s.Email).ToHashSet(StringComparer.OrdinalIgnoreCase);
         engine.SelectMessages(filteredMessages.Where(m => visibleSenders.Contains(m.SenderEmail)).Select(m => m.Id));
+        if (suggestedSelectionCount > 0) suggestedSelectionCount = engine.SelectedMessageIds.Count;
         InvalidatePreview();
     }
 
@@ -526,6 +530,7 @@ else if (!isLoading)
     {
         var isChecked = args.Value is bool value && value;
         engine.ToggleMessageSelection(messageId, isChecked);
+        if (suggestedSelectionCount > 0) suggestedSelectionCount = engine.SelectedMessageIds.Count;
         InvalidatePreview();
     }
 
