@@ -1,6 +1,7 @@
 using MailboxCleaner.Web.Application.DTOs;
 using MailboxCleaner.Web.Application.Queries;
 using MailboxCleaner.Web.Infrastructure.Google;
+using MailboxCleaner.Web.Application.Cleanup;
 
 namespace MailboxCleaner.Web.Application.Services;
 
@@ -11,4 +12,6 @@ public interface ISenderOverviewService
     Task<IReadOnlyList<MailItemDto>> ReconcileMailItemsAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<GmailLabel>> GetLabelsAsync(CancellationToken cancellationToken);
     Task ApplyActionAsync(MailBulkAction action, IReadOnlyCollection<string> messageIds, string? labelId, string? newLabelName, CancellationToken cancellationToken);
+    Task<GmailBulkActionResult> ApplyActionWithResultAsync(MailBulkAction action, IReadOnlyCollection<string> messageIds,
+        string? labelId, string? newLabelName, CancellationToken cancellationToken);
 }
