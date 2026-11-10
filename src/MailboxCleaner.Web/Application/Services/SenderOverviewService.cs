@@ -108,28 +108,56 @@ public sealed class SenderOverviewService : ISenderOverviewService
 
     public Task<IReadOnlyList<GmailLabel>> GetLabelsAsync(CancellationToken cancellationToken) => _gmailClient.FetchLabelsAsync(cancellationToken);
 
-    public async Task ApplyActionAsync(MailBulkAction action, IReadOnlyCollection<string> messageIds, string? labelId, string? newLabelName, CancellationToken cancellationToken)
+    // Preserve the original service API for existing callers and tests.
+    public async Task ApplyActionAsync(MailBulkAction action, IReadOnlyCollection<string> messageIds,
+        string? labelId, string? newLabelName, CancellationToken cancellationToken)
+    {
+        var result = await ApplyActionWithResultAsync(action, messageIds, labelId, newLabelName, cancellationToken);
+        if (result.RequiresReconciliation)
+            throw new GmailOperationException(
+                $"Gmail accepted {result.TotalSucceeded} of {result.TotalRequested}; " +
+                $"{result.TotalFailed} rejected and {result.TotalUnknown} uncertain. Review before retrying.",
+                new InvalidOperationException(string.Join("; ", result.ErrorMessages)));
+    }
+
+    public async Task<GmailBulkActionResult> ApplyActionWithResultAsync(MailBulkAction action,
+        IReadOnlyCollection<string> messageIds, string? labelId, string? newLabelName,
+        CancellationToken cancellationToken)
     {
         if (_bulkActionService is not null)
         {
-            var result = await _bulkActionService.ApplyAsync(GetUserKey(), GmailBulkActionService.FromLegacyAction(action), messageIds, labelId, newLabelName, cancellationToken);
-            if (result.TotalFailed > 0) throw new GmailOperationException($"Gmail action completed for {result.TotalSucceeded} of {result.TotalRequested} messages; {result.TotalFailed} failed.", new InvalidOperationException(string.Join("; ", result.ErrorMessages)));
-            return;
+            return await _bulkActionService.ApplyAsync(GetUserKey(),
+                GmailBulkActionService.FromLegacyAction(action), messageIds,
+                labelId, newLabelName, cancellationToken);
         }
 
-        switch (action)
+        // Compatibility path used by tests; production calls GmailBulkActionService.
+        var ids = messageIds.Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (ids.Count == 0) return GmailBulkActionResult.Empty;
+
+        var targetLabelId = labelId;
+        if (action is MailBulkAction.Move or MailBulkAction.AddLabel)
         {
-            case MailBulkAction.Delete: await _gmailClient.TrashMessagesAsync(messageIds, cancellationToken); break;
-            case MailBulkAction.Archive: await _gmailClient.ArchiveMessagesAsync(messageIds, cancellationToken); break;
-            case MailBulkAction.MarkRead: await _gmailClient.MarkMessagesReadAsync(messageIds, cancellationToken); break;
-            case MailBulkAction.MarkUnread: await _gmailClient.MarkMessagesUnreadAsync(messageIds, cancellationToken); break;
-            case MailBulkAction.Move:
-                var target = !string.IsNullOrWhiteSpace(newLabelName) ? await _gmailClient.CreateLabelAsync(newLabelName, cancellationToken) : null;
-                await _gmailClient.MoveMessagesToLabelAsync(messageIds, target?.Id ?? labelId ?? throw new InvalidOperationException("A Gmail label is required."), cancellationToken);
-                break;
+            if (!string.IsNullOrWhiteSpace(newLabelName))
+                targetLabelId = (await _gmailClient.CreateLabelAsync(newLabelName, cancellationToken)).Id;
+            if (string.IsNullOrWhiteSpace(targetLabelId))
+                throw new ArgumentException("A Gmail label is required.", nameof(labelId));
         }
-    }
 
+        var result = action switch
+        {
+            MailBulkAction.Delete => await _gmailClient.TrashMessagesAsync(ids, cancellationToken),
+            MailBulkAction.Archive => await _gmailClient.ArchiveMessagesAsync(ids, cancellationToken),
+            MailBulkAction.MarkRead => await _gmailClient.MarkMessagesReadAsync(ids, cancellationToken),
+            MailBulkAction.MarkUnread => await _gmailClient.MarkMessagesUnreadAsync(ids, cancellationToken),
+            MailBulkAction.Move => await _gmailClient.MoveMessagesToLabelAsync(ids, targetLabelId!, cancellationToken),
+            MailBulkAction.AddLabel => await _gmailClient.AddLabelToMessagesAsync(ids, targetLabelId!, cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(action), action, null)
+        };
+        return new GmailBulkActionResult(ids.Count, result.TotalSucceeded, result.TotalFailed,
+            result.FailedMessageIds, result.ErrorMessages, result.UnknownMessageIds, targetLabelId);
+    }
 
     private string GetUserKey() => _mailboxUserContext?.CurrentUserKey ?? _userMailboxKeyProvider?.GetCurrentUserKey() ?? "legacy-test-session";
 
