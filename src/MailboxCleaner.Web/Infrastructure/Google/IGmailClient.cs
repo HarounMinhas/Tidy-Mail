@@ -7,6 +7,8 @@ public interface IGmailClient
     // Default implementation preserves existing fake Gmail clients in unit tests.
     Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(IProgress<GmailScanProgress>? progress, CancellationToken cancellationToken)
         => FetchMessageMetadataAsync(cancellationToken);
+    Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(bool forceRefresh, IProgress<GmailScanProgress>? progress, CancellationToken cancellationToken)
+        => FetchMessageMetadataAsync(progress, cancellationToken);
     Task<IReadOnlyList<GmailLabel>> FetchLabelsAsync(CancellationToken cancellationToken);
     Task<GmailActionResult> TrashMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken);
     Task<GmailActionResult> ArchiveMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken);
