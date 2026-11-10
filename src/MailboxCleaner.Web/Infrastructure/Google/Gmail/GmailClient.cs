@@ -149,7 +149,7 @@ public sealed class GmailClient : IGmailClient
         do
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Google.Apis.Gmail.v1.Data.ListHistoryResponse page;
+            ListHistoryResponse page;
             try
             {
                 page = await ExecuteWithRetryAsync(() => request.ExecuteAsync(cancellationToken), cancellationToken);
