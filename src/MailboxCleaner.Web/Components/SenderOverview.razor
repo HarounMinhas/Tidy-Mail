@@ -119,6 +119,32 @@
 {
     <div class="alert alert-danger">@errorMessage</div>
 }
+@if (lastActionResult is not null)
+{
+    <div class="alert @(lastActionResult.RequiresReconciliation ? "alert-warning" : "alert-success")" role="status">
+        <strong>Last Gmail action: @lastActionKind</strong> —
+        Gmail acknowledged @lastActionResult.TotalSucceeded of @lastActionResult.TotalRequested messages;
+        @lastActionResult.TotalFailed rejected, @lastActionResult.TotalUnknown uncertain.
+        @if (lastActionResult.CacheUpdateFailed)
+        {
+            <div>The local metadata update failed. Gmail accepted the action; check the refreshed mailbox before trying again.</div>
+        }
+        @if (lastActionResult.TotalUnknown > 0)
+        {
+            <div><strong>Do not retry uncertain messages yet:</strong> the request may have reached Gmail. Review the refreshed mailbox first.</div>
+        }
+        @if (lastActionResult.TotalFailed > 0)
+        {
+            <button type="button" class="btn btn-sm btn-outline-dark mt-2" disabled="@actionInProgress" @onclick="ReviewRejectedMessages">
+                Select @lastActionResult.TotalFailed rejected messages for a new preview
+            </button>
+        }
+        @if (lastActionResult.ErrorMessages.Count > 0)
+        {
+            <div class="small mt-2">@string.Join(" | ", lastActionResult.ErrorMessages.Take(3))</div>
+        }
+    </div>
+}
 @if (!isLoading && !filteredSenders.Any())
 {
     <div class="alert alert-warning">No senders found.</div>
@@ -196,6 +222,7 @@ else if (!isLoading)
             <button class="btn btn-outline-secondary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkRead)">Mark as read</button>
             <button class="btn btn-outline-secondary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkUnread)">Mark as unread</button>
             <button class="btn btn-outline-warning" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Move)">Move to label</button>
+            <button class="btn btn-outline-success" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.AddLabel)">Add label (keep existing)</button>
         </div>
     </div>
 }
@@ -233,8 +260,16 @@ else if (!isLoading)
                 }
             </ul>
 
-            @if (pendingAction == MailBulkAction.Move)
+            @if (pendingAction == MailBulkAction.Move || pendingAction == MailBulkAction.AddLabel)
             {
+                @if (pendingAction == MailBulkAction.Move)
+                {
+                    <div class="alert alert-warning">Move to label removes the INBOX label and all other custom labels from selected messages. Read/unread, starred and important flags remain unchanged. To keep other labels, choose <strong>Add label</strong> instead.</div>
+                }
+                else
+                {
+                    <div class="alert alert-info">Add label preserves the INBOX label and all existing labels. It does not archive or move the selected messages.</div>
+                }
                 <div class="row g-2 align-items-end">
                     <div class="col-md-6">
                         <label class="form-label">Destination Gmail label</label>
@@ -307,6 +342,8 @@ else if (!isLoading)
     private string progressMessage = "Loading Gmail metadata…";
     private string successMessage = string.Empty;
     private string errorMessage = string.Empty;
+    private GmailBulkActionResult? lastActionResult;
+    private MailBulkAction? lastActionKind;
     private string sortField = "Count";
     private string sortDirection = "Desc";
 
@@ -330,7 +367,8 @@ else if (!isLoading)
         && pendingAction.HasValue
         && actionPreview is not null
         && actionPreview.SelectedCount > 0
-        && (pendingAction != MailBulkAction.Move || !string.IsNullOrWhiteSpace(newFolderName) || !string.IsNullOrWhiteSpace(selectedDestinationLabelId));
+        && ((pendingAction != MailBulkAction.Move && pendingAction != MailBulkAction.AddLabel)
+            || !string.IsNullOrWhiteSpace(newFolderName) || !string.IsNullOrWhiteSpace(selectedDestinationLabelId));
 
     protected override async Task OnInitializedAsync()
     {
@@ -473,40 +511,82 @@ else if (!isLoading)
 
     private async Task ConfirmAction()
     {
-        if (actionInProgress || !pendingAction.HasValue || actionPreview is null || actionPreview.SelectedCount == 0)
-        {
-            return;
-        }
+        if (!CanConfirmAction || pendingAction is null || actionPreview is null) return;
         if (!actionPreview.MessageIds.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(engine.SelectedMessageIds))
         {
             CancelAction();
-            errorMessage = "The selection changed. Open the action preview again before confirming.";
+            errorMessage = "The selection changed. Review the updated selection before confirming.";
             return;
         }
 
+        var action = pendingAction.Value;
+        var messageIds = actionPreview.MessageIds.ToList();
         try
         {
             actionInProgress = true;
-            progressMessage = $"Applying {pendingAction} to {actionPreview.SelectedCount} messages…";
+            progressMessage = $"Sending {action} for {messageIds.Count} messages…";
             errorMessage = string.Empty;
             successMessage = string.Empty;
-            await OverviewService.ApplyActionAsync(pendingAction.Value, actionPreview.MessageIds, selectedDestinationLabelId, newFolderName, CancellationToken.None);
-            successMessage = $"Gmail accepted {pendingAction} for {actionPreview.SelectedCount} messages.";
+            lastActionResult = null;
+
+            var result = await OverviewService.ApplyActionWithResultAsync(action, messageIds,
+                selectedDestinationLabelId, newFolderName, CancellationToken.None);
+            lastActionResult = result;
+            lastActionKind = action;
+
+            // Created labels must be reused for any later retry, never recreated blindly.
+            if (!string.IsNullOrWhiteSpace(result.TargetLabelId))
+                selectedDestinationLabelId = result.TargetLabelId;
+            newFolderName = string.Empty;
             CancelAction();
-            await RefreshAsync();
+
+            if (result.RequiresReconciliation)
+            {
+                errorMessage = "Gmail returned rejected or uncertain results. The mailbox is being reloaded; " +
+                    "only definitively rejected messages can be offered for retry.";
+                await RefreshAsync(fromGmail: true);
+                if (result.TotalFailed > 0)
+                    engine.SelectMessages(result.FailedMessageIds);
+            }
+            else
+            {
+                successMessage = $"Gmail acknowledged {result.TotalSucceeded} of {result.TotalRequested} messages.";
+                await RefreshAsync();
+            }
+
             await OnMailboxChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            errorMessage = $"{ex.Message} Checking Gmail to reconcile any partially completed changes…";
-            await RefreshAsync(fromGmail: true);
-            await OnMailboxChanged.InvokeAsync();
-            errorMessage = $"{ex.Message} Mailbox reconciliation attempted; verify any failed messages before retrying.";
+            errorMessage = $"Could not complete the action: {ex.Message}. Check Gmail before retrying.";
+            // The operation might have reached Gmail. Never report a definitive failure here.
         }
         finally
         {
             actionInProgress = false;
             progressMessage = "Loading Gmail metadata…";
+        }
+    }
+
+    private void ReviewRejectedMessages()
+    {
+        if (actionInProgress || lastActionResult is null || lastActionKind is null ||
+            lastActionResult.TotalFailed == 0) return;
+
+        engine.ClearSelection();
+        engine.SelectMessages(lastActionResult.FailedMessageIds);
+        if (engine.SelectedMessageIds.Count == 0)
+        {
+            errorMessage = "Rejected messages are no longer present in this mailbox view. Rescan before retrying.";
+            return;
+        }
+
+        var action = lastActionKind.Value;
+        OpenActionPane(action); // Always require a fresh preview and confirmation.
+        if (!string.IsNullOrWhiteSpace(lastActionResult.TargetLabelId))
+        {
+            selectedDestinationLabelId = lastActionResult.TargetLabelId;
+            newFolderName = string.Empty; // do not recreate a new Gmail label on retry
         }
     }
 
