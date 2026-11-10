@@ -279,6 +279,7 @@ else if (!isLoading)
                     <div class="col-md-6">
                         <label class="form-label">Destination Gmail label</label>
                         <select class="form-select" @bind="selectedDestinationLabelId" disabled="@(!MoveDestinationLabels.Any())">
+                            <option value="">-- Select a destination label --</option>
                             @if (!MoveDestinationLabels.Any())
                             {
                                 <option value="">No user labels available</option>
@@ -294,6 +295,9 @@ else if (!isLoading)
                         <input class="form-control" @bind="newFolderName" placeholder="Enter folder name" />
                     </div>
                 </div>
+                <p class="small text-muted mt-2">Chosen target: @(string.IsNullOrWhiteSpace(newFolderName)
+                    ? MoveDestinationLabels.FirstOrDefault(l => l.Id == selectedDestinationLabelId)?.Name ?? "None selected"
+                    : $"New label: {newFolderName}").</p>
             }
 
             <div class="mt-3 d-flex gap-2">
@@ -340,7 +344,7 @@ else if (!isLoading)
     [Parameter] public IReadOnlyCollection<string> InitialSelectedMessageIds { get; set; } = Array.Empty<string>();
     [Parameter] public string? SuggestedSelectionTitle { get; set; }
     private int suggestedSelectionCount;
-    private string selectedDestinationLabelId = "INBOX";
+    private string selectedDestinationLabelId = string.Empty;
     private string newFolderName = string.Empty;
     private List<MailboxCleaner.Web.Infrastructure.Google.GmailLabel> existingLabels = new();
     private bool actionInProgress;
@@ -408,7 +412,7 @@ else if (!isLoading)
                 : await OverviewService.GetMailItemsAsync(CancellationToken.None)).ToList();
             allSenders = BuildSenderStats(allMessages);
             existingLabels = (await OverviewService.GetLabelsAsync(CancellationToken.None)).ToList();
-            selectedDestinationLabelId = MoveDestinationLabels.FirstOrDefault()?.Id ?? string.Empty;
+            selectedDestinationLabelId = string.Empty;
 
             engine = new MailManagementEngine(allMessages);
 
