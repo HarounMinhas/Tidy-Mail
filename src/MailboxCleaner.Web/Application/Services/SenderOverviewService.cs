@@ -80,7 +80,16 @@ public sealed class SenderOverviewService : ISenderOverviewService
         {
             var (email, name) = ParseSender(item.FromHeader);
             var domain = email.Contains('@') ? email.Split('@')[^1] : string.Empty;
-            return new MailItemDto(item.Id, email, name, domain, item.Subject, item.ReceivedAt, item.IsRead, item.HasAttachment, item.Labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase) is false, ResolvePrimaryFolder(item.Labels, labelsById));
+            var newsletter = !string.IsNullOrWhiteSpace(item.ListUnsubscribe)
+                || string.Equals(item.Precedence, "bulk", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.Precedence, "list", StringComparison.OrdinalIgnoreCase);
+            var notification = email.Contains("notify", StringComparison.OrdinalIgnoreCase)
+                || email.Contains("notification", StringComparison.OrdinalIgnoreCase)
+                || item.Subject.Contains("alert", StringComparison.OrdinalIgnoreCase)
+                || item.Subject.Contains("notification", StringComparison.OrdinalIgnoreCase);
+            return new MailItemDto(item.Id, email, name, domain, item.Subject, item.ReceivedAt,
+                item.IsRead, item.HasAttachment, !item.Labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase),
+                ResolvePrimaryFolder(item.Labels, labelsById), newsletter, notification, item.Labels);
         }).ToList();
     }
 
