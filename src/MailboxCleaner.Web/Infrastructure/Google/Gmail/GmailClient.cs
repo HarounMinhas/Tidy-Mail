@@ -159,7 +159,7 @@ public sealed class GmailClient : IGmailClient
         return await ExecuteBatchAsync(messageIds, async (service, id) =>
         {
             var current = await FetchMetadataAsync(service, id, cancellationToken);
-            var removeLabels = ResolveLabelsToRemoveForMove(current.LabelIds ?? Array.Empty<string>(), labelId, labelsById);
+            var removeLabels = ResolveLabelsToRemoveForMove(current.LabelIds?.ToList() ?? new List<string>(), labelId, labelsById);
             var request = new ModifyMessageRequest { AddLabelIds = [labelId], RemoveLabelIds = removeLabels.ToList() };
             return await service.Users.Messages.Modify(request, "me", id).ExecuteAsync(cancellationToken);
         }, cancellationToken);
