@@ -20,5 +20,6 @@ public enum MailboxLocalAction
     Archive,
     MarkRead,
     MarkUnread,
-    MoveToLabel
+    MoveToLabel,
+    AddLabel
 }
