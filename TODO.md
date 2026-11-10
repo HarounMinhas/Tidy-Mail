@@ -49,6 +49,9 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 | **TM-008 / TM-026, P1** | Gmail-resultaten onderscheiden: acknowledged, definitief afgewezen en onzeker. Geen automatische retry bij onzekere resultaten. Gerichte retry voor afgewezen IDs vereist nieuwe preview en bevestiging na succesvolle reconciliatie. Een SQLite-fout wist eerdere Gmail-acknowledgements niet. | Live partial-failure-tests, per-bericht verificatie na batchacceptatie en impact van volledige herlezing op grote mailboxen |
 | **TM-018, P1** | Add label behoudt INBOX en alle bestaande labels; Move to label vervangt gebruikerslabels en verwijdert INBOX. Preview legt dit uit. Gebruiker moet zelf een bestemming kiezen. Een al aangemaakt label wordt bij retry hergebruikt. | Echte Gmail-labeltests met systeemlabels en gedeeltelijke fouten |
 | **TM-021, P1** | Herverbindingsknop in scan en overzicht bij ontbrekende/verlopen Gmail-tokens; retry is uitgeschakeld als Gmail-herlezing faalt. | Browserproef tokenverval, reconnect en accountwissel |
+| **TM-003 / TM-005, P1** | Bij heraanmelding zonder nieuw Google refresh-token blijft het eerder opgeslagen token van exact hetzelfde Google-account behouden; er zijn unit tests. | Reconnect met echte OAuth, tokenrotatie en revocation testen |
+| **TM-004, P0** | Geselecteerde berichten die na filterwijziging verborgen zijn, worden geteld en er is extra bevestiging vereist voordat een bulkactie ze meeneemt. | Browser-E2E met meerdere gecombineerde filters |
+| **TM-006, P1** | Volledige Gmail-reconciliatie en logout gebruiken dezelfde per-account lock als scan- en bulkacties; aanvullende concurrency-unit tests. | Echte gelijktijdige twee-account-/logout-tests |
 | **TM-032/033, P1** | Nieuwe regressietests voor suggestieselectie, labelbehoud, partiele/onzekere acties en cache-writefouten. | Echte Gmail- en browser-/multiuser-E2E, securityreview en schaalmetingen |
 
 **Nog niet afgerond / releaseblokkers:**
