@@ -8,6 +8,37 @@
 
 Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en eventueel publiceren van alle huidige Tidy Mail-functionaliteit**. Nieuwe productideeën staan apart onder *Optionele uitbreidingen*; ze zijn geen verplichte voorwaarden om de bestaande MVP volledig werkend te maken.
 
+## Implementatievoortgang — 10 november 2026
+
+**Werkbranch:** [codex/implement-tidy-mail-backlog](https://github.com/HarounMinhas/Tidy-Mail/tree/codex/implement-tidy-mail-backlog)  
+**Concept-PR:** [#12 — implementatie en code-review](https://github.com/HarounMinhas/Tidy-Mail/pull/12)  
+**Werkwijze:** alle codewijzigingen blijven op de werkbranch tot CI en aanvullende review zijn afgerond. Voor een taak geldt **code aanwezig ≠ functioneel afgetest**. Vink een volledige taak pas af na de *Definition of Done* onderaan.
+
+| Taak | Codevoortgang op werkbranch | Wat nog nodig is om volledig af te vinken |
+| --- | --- | --- |
+| TM-001 | InteractiveServer en Blazor script toegevoegd | Echte browser-/SignalR-test |
+| TM-002 | Fail-closed Google subject, authstate vanuit Blazor | Twee browsers / accountisolatie E2E en alle routes nalopen |
+| TM-003 | Contextonafhankelijke, versleutelde SQLite tokenstore | Reconnect-, tokenexpiry- en echte accounttest |
+| TM-004 | Veilige zichtbare selectie, selectie wissen en uitgebreid bevestigen | Browser-E2E op filters en Trash |
+| TM-005 | JWT-validatie met Google audience en scopefout gecorrigeerd | Token-/callback-veiligheidstests met echte OAuth |
+| TM-006 | Operaties per mailbox geserialiseerd, atomische scancommit, lock voor cache-read | Stress- en logout-racetest in draaiende app |
+| TM-007 | `has:attachment` ID-zoekquery zonder bodies | Vergelijken met echte mails en Gmail quota controleren |
+| TM-008 | Reconciliatie na partiële bulkfout gestart; succesfeedback verduidelijkt | Resultaten per bericht / onbekende status en retry UX |
+| TM-009/010 | Scanvoortgang en cancellogica toegevoegd | Grote-mailbox browser-/canceltest |
+| TM-011/012/013 | Transient retry, nul-berichten-cache, expliciete force-refresh | API-foutmatrixtests |
+| TM-015/016/017 | Dashboard-updates na acties, labelnamen en systeemprecedentie | Echte Gmail label/Trash test |
+| TM-019/020/022 | Extra filters, klikbare suggesties, voorgegroepeerde renders | Browser-UX/performance |
+| TM-024/025 | Geselecteerde-ID labelreads en extra Trash waarschuwing | Grote selectie / hersteltest |
+| TM-027 | Durable SQLite metadata, atomische scanopslag, persistentietest | Host/volume, retentie, backup/multi-instance aanpak |
+| TM-028 | Google-tokens versleuteld in SQLite + blijvende key ring | Verificatie na echte herstart en secure key management |
+| TM-029 | History-ID snapshot, incrementele merges, 404 -> full sync, unittests | Echte Gmail history-/quota-/deletetest |
+| TM-032/036 | Extra unit tests en GitHub Actions .NET 8 CI | Verplichte E2E-, Gmail-integratie- en beveiligingstests |
+| TM-042 | README uitgebreid voor ports, SQLite, OAuth en sync | Release- en deploymentstappen op echte omgeving |
+
+**Nog niet voltooid:** o.a. volledige Gmail-resultaatverificatie/undo, zware performance- en securitytests, multi-instance deployment, privacy-/retentiebeleid, Google OAuth-appverificatie, browser-E2E en optionele productuitbreidingen TM-043 t/m TM-048. De resterende originele checkboxes hieronder blijven de werkbacklog.
+
+**Externe releasevoorwaarden:** een gecontroleerd Google Cloud OAuth-project, afzonderlijke Gmail-testaccounts en een gekozen hosting-/back-upomgeving zijn nodig voor de echte integratie- en productietests. Er zijn **geen** wijzigingen aan een echte Gmail-mailbox gedaan in deze PR.
+
 ## Legenda en werkafspraken
 
 - `[ ]` = nog niet afgerond of nog niet aangetoond; pas afvinken na verificatie.
@@ -43,8 +74,8 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 
 ### TM-001 [P0] Blazor-interactiviteit daadwerkelijk inschakelen
 
-- [ ] Configureer een interactieve server-render mode voor `Routes` (en waar nodig `HeadOutlet`) in `src/MailboxCleaner.Web/Components/App.razor`.
-- [ ] Voeg het benodigde Blazor-clientscript toe en bevestig dat een SignalR-circuit kan opstarten.
+- [x] Configureer een interactieve server-render mode voor `Routes` (en waar nodig `HeadOutlet`) in `src/MailboxCleaner.Web/Components/App.razor`.
+- [x] Voeg het benodigde Blazor-clientscript toe en bevestig dat een SignalR-circuit kan opstarten.
 - [ ] Test `Start scan`, `Cancel`, filterinvoer, afzender-checkboxes, `Confirm` en `Rescan` in een browser.
 - **Acceptatie:** alle zichtbare Blazor-eventhandlers werken, zonder browserconsolefouten of onbedoelde volledige paginaverversing.
 - **Bestanden:** `Components/App.razor`, `Components/Routes.razor`, `Program.cs`.
@@ -70,8 +101,8 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 
 ### TM-004 [P0] Veilig selecteren onder filters
 
-- [ ] Laat de afzendercheckbox uitsluitend **zichtbare/gefilterde** berichten kiezen, of maak expliciet twee opties: 'zichtbare berichten' en 'alle berichten van afzender'.
-- [ ] Zorg dat de UI altijd duidelijk toont hoeveel berichten werkelijk geselecteerd zijn (inclusief eventuele verborgen selectie).
+- [x] Laat de afzendercheckbox uitsluitend **zichtbare/gefilterde** berichten kiezen, of maak expliciet twee opties: 'zichtbare berichten' en 'alle berichten van afzender'.
+- [x] Zorg dat de UI altijd duidelijk toont hoeveel berichten werkelijk geselecteerd zijn (inclusief eventuele verborgen selectie).
 - [ ] Maak `Select visible`, `Select all matching` en `Clear selection` met expliciete semantiek; wis/verifieer selectie bij rescan of accountwissel.
 - [ ] Hergebruik `BulkActionPreviewService` in de echte UI: actie, exact aantal, belangrijkste afzenders, voorbeeldberichten en waarschuwing bij Trash.
 - [ ] Voorkom dat selectie verandert tussen preview en uitvoering zonder nieuwe bevestiging.
@@ -80,27 +111,27 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 
 ### TM-005 [P1] OAuth-identiteit en configuratie hardenen
 
-- [ ] Valideer het Google ID-token (handtekening, uitgever, audience, vervaldatum en bruikbare `sub`) met een ondersteunde Google-/OIDC-bibliotheek; alleen JWT-payload decoderen is onvoldoende validatie.
+- [x] Valideer het Google ID-token (handtekening, uitgever, audience, vervaldatum en bruikbare `sub`) met een ondersteunde Google-/OIDC-bibliotheek; alleen JWT-payload decoderen is onvoldoende validatie.
 - [ ] Behoud state-controle; overweeg nonce/PKCE als onderdeel van een uniforme standaard-OIDC-flow.
 - [ ] Verwerp aanmeldingen zonder betrouwbare accountidentiteit.
-- [ ] Controleer scopeconfiguratie: `GoogleOAuthOptions.Scopes` bevat een foutieve standaardwaarde met een afsluitend aanhalingsteken; `appsettings.json` bevat wel `gmail.modify`.
+- [x] Controleer scopeconfiguratie: `GoogleOAuthOptions.Scopes` bevat een foutieve standaardwaarde met een afsluitend aanhalingsteken; `appsettings.json` bevat wel `gmail.modify`.
 - [ ] Test geldige, verlopen, geweigerde en gemanipuleerde callbacks.
 - **Acceptatie:** geen geauthenticeerde sessie zonder valide Google-identiteit en expliciete fout bij ongeldige OAuth-respons.
 - **Bestanden:** `Auth/GoogleAuthController.cs`, `Infrastructure/Google/GoogleOAuthService.cs`, `GoogleOAuthOptions.cs`.
 
 ### TM-006 [P1] Concurrentie en uitloggen tijdens scan veilig maken
 
-- [ ] Synchroniseer `MailboxMetadataStore.HasMessageAsync` met schrijvende cache-operaties; de huidige `Dictionary.ContainsKey` leest zonder lock.
-- [ ] Voorkom dat een lopende scan na logout of `ClearAsync` de cache van die gebruiker opnieuw vult.
-- [ ] Voorkom dat twee scans of een scan en een bulkactie elkaars resultaat overschrijven; gebruik per-account exclusie/generaties of versionering.
-- [ ] Bewaar de vorige complete scan totdat de nieuwe volledig en succesvol is en wissel daarna atomair.
+- [x] Synchroniseer `MailboxMetadataStore.HasMessageAsync` met schrijvende cache-operaties; de huidige `Dictionary.ContainsKey` leest zonder lock.
+- [x] Voorkom dat een lopende scan na logout of `ClearAsync` de cache van die gebruiker opnieuw vult.
+- [x] Voorkom dat twee scans of een scan en een bulkactie elkaars resultaat overschrijven; gebruik per-account exclusie/generaties of versionering.
+- [x] Bewaar de vorige complete scan totdat de nieuwe volledig en succesvol is en wissel daarna atomair.
 - **Acceptatie:** gelijktijdige scans, bulkacties en logout veroorzaken geen onterechte cache-updates of terugkeer van gewiste metadata.
 - **Bestanden:** `Application/MailboxScanning/MailboxMetadataStore.cs`, `MailboxScanService.cs`, `Auth/GoogleAuthController.cs`.
 
 ### TM-007 [P1] Bijlagedetectie corrigeren zonder e-mailinhoud
 
-- [ ] Verifieer het werkelijke Gmail API-antwoord voor `format=metadata`: MIME-parts/attachment-ID's zijn hiermee niet betrouwbaar beschikbaar.
-- [ ] Implementeer een privacyvriendelijke alternatieve indicator, bijvoorbeeld via Gmail-zoekresultaten met `has:attachment` die op bericht-ID worden gematcht, inclusief quota-afweging.
+- [x] Verifieer het werkelijke Gmail API-antwoord voor `format=metadata`: MIME-parts/attachment-ID's zijn hiermee niet betrouwbaar beschikbaar.
+- [x] Implementeer een privacyvriendelijke alternatieve indicator, bijvoorbeeld via Gmail-zoekresultaten met `has:attachment` die op bericht-ID worden gematcht, inclusief quota-afweging.
 - [ ] Pas `ContainsAttachment` en documentatie aan; toon geen verzonnen zekerheid.
 - [ ] Test echte berichten mét/zonder bijlage en speciale gevallen.
 - **Acceptatie:** bijlagenfilter en dashboardteller kloppen in de testmailbox, zonder bodydownloads.
