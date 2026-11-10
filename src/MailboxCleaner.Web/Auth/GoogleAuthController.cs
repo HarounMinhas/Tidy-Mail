@@ -21,10 +21,12 @@ public sealed class GoogleAuthController : ControllerBase
     private readonly IUserMailboxKeyProvider _userMailboxKeyProvider;
     private readonly MailboxUserContext _mailboxUserContext;
     private readonly GoogleOAuthOptions _options;
+    private readonly MailboxOperationCoordinator _coordinator;
 
     public GoogleAuthController(IGoogleOAuthService oauthService, ITokenStore tokenStore,
         IMailboxMetadataStore metadataStore, IUserMailboxKeyProvider userMailboxKeyProvider,
-        MailboxUserContext mailboxUserContext, IOptions<GoogleOAuthOptions> options)
+        MailboxUserContext mailboxUserContext, IOptions<GoogleOAuthOptions> options,
+        MailboxOperationCoordinator? coordinator = null)
     {
         _oauthService = oauthService;
         _tokenStore = tokenStore;
@@ -32,6 +34,7 @@ public sealed class GoogleAuthController : ControllerBase
         _userMailboxKeyProvider = userMailboxKeyProvider;
         _mailboxUserContext = mailboxUserContext;
         _options = options.Value;
+        _coordinator = coordinator ?? new MailboxOperationCoordinator();
     }
 
     [HttpGet("login")]
@@ -103,6 +106,7 @@ public sealed class GoogleAuthController : ControllerBase
         {
             var userKey = _userMailboxKeyProvider.GetCurrentUserKey();
             _mailboxUserContext.CurrentUserKey = userKey;
+            using var operation = await _coordinator.EnterAsync(userKey, cancellationToken);
             await _metadataStore.ClearAsync(userKey, cancellationToken);
             await _tokenStore.ClearAsync(cancellationToken);
         }
