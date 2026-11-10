@@ -10,6 +10,20 @@ namespace MailboxCleaner.Web.Tests;
 public sealed class SqliteTokenStoreTests
 {
     [Fact]
+    public void Reauthentication_WithoutNewRefreshToken_PreservesExistingOne()
+    {
+        var existing = new TokenSet("old-access", "valid-refresh", DateTimeOffset.UtcNow.AddHours(1));
+        var newAccess = new TokenSet("new-access", "", DateTimeOffset.UtcNow.AddHours(1));
+        var merged = newAccess.PreserveExistingRefreshToken(existing);
+
+        Assert.Equal("new-access", merged.AccessToken);
+        Assert.Equal("valid-refresh", merged.RefreshToken);
+        Assert.Equal("fresh-refresh", newAccess with { RefreshToken = "fresh-refresh" } is { RefreshToken: "fresh-refresh" }
+            ? (newAccess with { RefreshToken = "fresh-refresh" }).PreserveExistingRefreshToken(existing).RefreshToken
+            : string.Empty);
+    }
+
+    [Fact]
     public async Task Tokens_AreEncryptedPersistedAndIsolatedByGoogleSubject()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"tidy-tokens-{Guid.NewGuid():N}");
