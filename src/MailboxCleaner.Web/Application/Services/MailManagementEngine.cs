@@ -178,7 +178,8 @@ public enum MailBulkAction
     Archive,
     Move,
     MarkRead,
-    MarkUnread
+    MarkUnread,
+    AddLabel
 }
 
 public sealed record ActionPreview(MailBulkAction Action, int SelectedCount, string DestinationFolder, IReadOnlyList<string> MessageIds);
