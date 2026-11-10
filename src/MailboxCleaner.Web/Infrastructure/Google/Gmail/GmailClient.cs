@@ -127,6 +127,112 @@ public sealed class GmailClient : IGmailClient
         }
     }
 
+    public async Task<string?> GetMailboxHistoryIdAsync(CancellationToken cancellationToken)
+    {
+        var service = await CreateRequiredServiceAsync(cancellationToken);
+        var profile = await ExecuteWithRetryAsync(
+            () => service.Users.GetProfile("me").ExecuteAsync(cancellationToken), cancellationToken);
+        return profile.HistoryId?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    public async Task<GmailHistoryDelta?> FetchHistoryDeltaAsync(string startHistoryId, CancellationToken cancellationToken)
+    {
+        if (!ulong.TryParse(startHistoryId, out var cursor)) return null;
+        var service = await CreateRequiredServiceAsync(cancellationToken);
+        var request = service.Users.History.List("me");
+        request.StartHistoryId = cursor;
+        request.MaxResults = 500;
+
+        var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var deleted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lastHistoryId = startHistoryId;
+        do
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Google.Apis.Gmail.v1.Data.ListHistoryResponse page;
+            try
+            {
+                page = await ExecuteWithRetryAsync(() => request.ExecuteAsync(cancellationToken), cancellationToken);
+            }
+            catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound)
+            {
+                // Gmail retains history for a limited time. Caller falls back to full scan.
+                return null;
+            }
+
+            if (page.HistoryId.HasValue)
+                lastHistoryId = page.HistoryId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            foreach (var history in page.History ?? Array.Empty<History>())
+            {
+                foreach (var entry in history.MessagesDeleted ?? Array.Empty<HistoryMessageDeleted>())
+                {
+                    var id = entry.Message?.Id;
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    changed.Remove(id);
+                    deleted.Add(id);
+                }
+
+                var changedIds = (history.MessagesAdded ?? Array.Empty<HistoryMessageAdded>())
+                    .Select(entry => entry.Message?.Id)
+                    .Concat((history.LabelsAdded ?? Array.Empty<HistoryLabelAdded>()).Select(entry => entry.Message?.Id))
+                    .Concat((history.LabelsRemoved ?? Array.Empty<HistoryLabelRemoved>()).Select(entry => entry.Message?.Id));
+                foreach (var id in changedIds)
+                {
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    deleted.Remove(id);
+                    changed.Add(id);
+                }
+            }
+            request.PageToken = page.NextPageToken;
+        } while (!string.IsNullOrWhiteSpace(request.PageToken));
+
+        var updates = new List<GmailMessageMetadata>();
+        if (changed.Count > 0)
+        {
+            var attachmentIds = await FetchAttachmentIdsAsync(service, cancellationToken);
+            foreach (var id in changed)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Message message;
+                try
+                {
+                    message = await FetchMetadataAsync(service, id, cancellationToken);
+                }
+                catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound)
+                {
+                    deleted.Add(id);
+                    continue;
+                }
+
+                var labels = message.LabelIds?.ToList() ?? new List<string>();
+                if (labels.Contains("TRASH", StringComparer.OrdinalIgnoreCase)
+                    || labels.Contains("SPAM", StringComparer.OrdinalIgnoreCase))
+                {
+                    deleted.Add(id); // full scans exclude spam and trash
+                    continue;
+                }
+                var rawDate = GetHeader(message, "Date");
+                var date = DateTimeOffset.TryParse(rawDate, out var parsed) ? parsed : (DateTimeOffset?)null;
+                updates.Add(new GmailMessageMetadata(
+                    message.Id ?? id,
+                    GetHeader(message, "From") ?? "Unknown sender",
+                    GetHeader(message, "Subject") ?? "(No subject)",
+                    date,
+                    !labels.Contains("UNREAD", StringComparer.OrdinalIgnoreCase),
+                    attachmentIds.Contains(id),
+                    labels,
+                    message.ThreadId,
+                    message.SizeEstimate,
+                    GetHeader(message, "List-Unsubscribe"),
+                    GetHeader(message, "Precedence"),
+                    DateTimeOffset.UtcNow));
+            }
+        }
+
+        return new GmailHistoryDelta(lastHistoryId, updates, deleted);
+    }
+
     public async Task<IReadOnlyList<GmailLabel>> FetchLabelsAsync(CancellationToken cancellationToken)
     {
         if (_labelCache is not null)
