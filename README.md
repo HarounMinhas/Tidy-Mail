@@ -154,7 +154,7 @@ GitHub Actions runs a .NET 8 restore, build, and test workflow for pull requests
 
 By default, metadata is stored in a SQLite file under the OS user-local application data directory (`TidyMail/mailbox.db`). To choose a path, set `Mailbox:SqlitePath` in configuration or the environment (for example `Mailbox__SqlitePath`). This is a **single-instance storage design**: use a managed shared database for several web servers and secure the host volume and backups. The file contains sender, subject and other cleanup metadata, but never email bodies.
 
-OAuth ID tokens are verified against Google and the expected client audience, and each mailbox cache is keyed by a validated Google subject. Access and refresh tokens are Data Protection-encrypted and stored in a **server-side in-process account cache** for now, not in the SQLite mailbox database. Server restarts can therefore require Google sign-in again. Production multi-instance and durable token storage still require work.
+OAuth ID tokens are verified against Google and the expected client audience, and each mailbox cache is keyed by a validated Google subject. Access and refresh tokens are **Data Protection-encrypted and persisted in SQLite** by validated Google subject. The Data Protection key ring is stored in the OS local application data directory under `TidyMail/keys` by default (override with `Mailbox:DataProtectionKeysPath`). Keep both the SQLite file **and** the key ring private, persistent and backed up; losing the key ring renders saved tokens unreadable. A multi-instance deployment requires a shared database and shared protected key ring, which is not yet provided by this local setup.
 
 ## Known limitations and future improvements
 
