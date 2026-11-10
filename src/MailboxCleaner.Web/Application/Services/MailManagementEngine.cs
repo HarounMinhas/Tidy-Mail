@@ -37,32 +37,27 @@ public sealed class MailManagementEngine
         }
     }
 
-    public bool IsSenderFullySelected(string senderEmail)
+    public bool IsSenderFullySelected(string senderEmail, IReadOnlyCollection<string>? visibleIds = null)
     {
-        var ids = _messagesBySender.TryGetValue(senderEmail, out var senderMessages)
-            ? senderMessages.Select(message => message.Id).ToList()
-            : new List<string>();
-
+        var ids = GetSenderMessageIds(senderEmail, visibleIds).ToList();
         return ids.Count > 0 && ids.All(id => _selectedMessageIds.Contains(id));
     }
 
-    public void ToggleSenderSelection(string senderEmail, bool selected)
+    public void ToggleSenderSelection(string senderEmail, bool selected, IReadOnlyCollection<string>? visibleIds = null)
     {
-        var ids = _messagesBySender.TryGetValue(senderEmail, out var senderMessages)
-            ? senderMessages.Select(message => message.Id)
-            : Enumerable.Empty<string>();
-
-        foreach (var id in ids)
+        foreach (var id in GetSenderMessageIds(senderEmail, visibleIds))
         {
-            if (selected)
-            {
-                _selectedMessageIds.Add(id);
-            }
-            else
-            {
-                _selectedMessageIds.Remove(id);
-            }
+            if (selected) _selectedMessageIds.Add(id);
+            else _selectedMessageIds.Remove(id);
         }
+    }
+
+    private IEnumerable<string> GetSenderMessageIds(string senderEmail, IReadOnlyCollection<string>? visibleIds)
+    {
+        if (!_messagesBySender.TryGetValue(senderEmail, out var senderMessages)) return Enumerable.Empty<string>();
+        if (visibleIds is null) return senderMessages.Select(message => message.Id);
+        var allowed = visibleIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return senderMessages.Where(message => allowed.Contains(message.Id)).Select(message => message.Id);
     }
 
     public void ToggleMessageSelection(string id, bool selected)
