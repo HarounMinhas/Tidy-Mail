@@ -137,24 +137,23 @@ public sealed class MailboxWorkflowServiceTests
     }
 
     [Fact]
-    public void UserMailboxKeyProvider_UsesRealClaimsAndFallsBackForPlaceholderGoogleUser()
+    public void UserMailboxKeyProvider_FailsClosedWithoutAuthenticatedGoogleSubject()
     {
         var contextAccessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
         contextAccessor.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim(ClaimTypes.NameIdentifier, "google-user")
         ], "test"));
-
-        var key = new UserMailboxKeyProvider(contextAccessor).GetCurrentUserKey();
-
-        Assert.DoesNotContain("google-user", key);
+        Assert.Throws<UnauthorizedAccessException>(() => new UserMailboxKeyProvider(contextAccessor).GetCurrentUserKey());
 
         contextAccessor.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim(ClaimTypes.NameIdentifier, "real-subject")
         ], "test"));
-
         Assert.Equal("user:real-subject", new UserMailboxKeyProvider(contextAccessor).GetCurrentUserKey());
+
+        contextAccessor.HttpContext = null;
+        Assert.Throws<UnauthorizedAccessException>(() => new UserMailboxKeyProvider(contextAccessor).GetCurrentUserKey());
     }
 
     [Fact]
