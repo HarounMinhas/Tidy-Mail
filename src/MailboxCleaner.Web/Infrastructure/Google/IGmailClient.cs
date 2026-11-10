@@ -19,6 +19,8 @@ public interface IGmailClient
     Task<GmailActionResult> MarkMessagesReadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken);
     Task<GmailActionResult> MarkMessagesUnreadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken);
     Task<GmailActionResult> MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken);
+    Task<GmailActionResult> AddLabelToMessagesAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken)
+        => throw new NotSupportedException("Gmail label addition has not been implemented in this Gmail client.");
     Task<GmailLabel> CreateLabelAsync(string labelName, CancellationToken cancellationToken);
 }
 
