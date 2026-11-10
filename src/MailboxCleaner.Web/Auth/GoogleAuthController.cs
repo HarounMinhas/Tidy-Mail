@@ -79,7 +79,8 @@ public sealed class GoogleAuthController : ControllerBase
         }
 
         _mailboxUserContext.CurrentUserKey = $"user:{identity.Subject.Trim().ToLowerInvariant()}";
-        await _tokenStore.SaveTokensAsync(tokenSet, cancellationToken);
+        var existingTokens = await _tokenStore.GetTokensAsync(cancellationToken);
+        await _tokenStore.SaveTokensAsync(tokenSet.PreserveExistingRefreshToken(existingTokens), cancellationToken);
 
         var claims = new List<Claim>
         {
