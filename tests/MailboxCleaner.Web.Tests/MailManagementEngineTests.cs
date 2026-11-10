@@ -58,6 +58,25 @@ public sealed class MailManagementEngineTests
     }
 
     [Fact]
+    public void ExtendedFilters_UseAgeClassificationAndGmailLabelIds()
+    {
+        var messages = CreateDummyMessages().ToList();
+        messages.Add(new MailItemDto("m6", "news@example.com", "News", "example.com",
+            "Weekly digest", new DateTimeOffset(2023, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            true, false, true, "News", true, false, ["Label_News"]));
+        var engine = new MailManagementEngine(messages);
+
+        var now = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
+        var result = engine.FilterMessages("", "", "", null,
+            "1y", newsletterOnly: true, labelId: "Label_News", clock: now);
+
+        Assert.Single(result);
+        Assert.Equal("m6", result.Single().Id);
+        Assert.Empty(engine.FilterMessages("", "", "", null,
+            notificationOnly: true, labelId: "Label_News", clock: now));
+    }
+
+    [Fact]
     public void Autocomplete_ReturnsSenderAndSubjectSuggestions_AndHandlesEmptyInput()
     {
         var engine = new MailManagementEngine(CreateDummyMessages());
