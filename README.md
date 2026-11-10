@@ -7,7 +7,7 @@ Tidy Mail is a .NET 8 Blazor Server Gmail cleanup assistant for people with chao
 1. Sign in with Google.
 2. If no recent local scan exists, Tidy Mail shows a mailbox scan screen.
 3. During scanning, the UI explains that only metadata is fetched and shows status, scanned count, total discovered messages when known, current Gmail page, and a progress bar.
-4. Metadata is cached locally under a stable Google account subject/email or session key so users do not share mailbox caches.
+4. Metadata is cached by validated Google account subject in a local SQLite database; untrusted/anonymous sessions are never used as mailbox cache keys.
 5. Dashboard statistics, sender grouping, filtering, sorting, selections, and cleanup suggestions run from local metadata only.
 6. Gmail is called again only when the user confirms a write action.
 7. After Gmail confirms a write action, local metadata is updated for the successful message IDs.
@@ -36,7 +36,7 @@ The app does not display or persist full email contents. Message IDs are used on
 Configure Google OAuth credentials with a redirect URI such as:
 
 ```text
-https://localhost:5001/auth/callback
+https://localhost:51179/auth/callback
 ```
 
 The default scope set is:
@@ -62,9 +62,9 @@ Current scan behavior:
 - Metadata reads request `From`, `Subject`, `Date`, `List-Unsubscribe`, and `Precedence` headers.
 - Metadata fetching is concurrency-limited.
 - Scan state tracks scan ID, user/session, start/completion time, page token, discovered/scanned counts, status, errors, and cached metadata.
-- A completed scan is reused instead of rescanning on every page load.
-- Full rescans replace the prior metadata set so messages removed outside Tidy Mail do not linger in the dashboard.
-- Stale scans can be refreshed manually.
+- A completed scan is reused instead of rescanning on every page load; SQLite metadata survives an application restart.
+- Full rescans replace the prior metadata set so messages removed outside Tidy Mail do not linger in the dashboard. When a valid Gmail history cursor is available, refresh uses incremental History API updates and falls back to a full scan if the cursor has expired.
+- Stale scans can be refreshed manually; an explicit full scan bypasses the short-lived Gmail in-process cache.
 
 ## Dashboard and cleanup suggestions
 
@@ -116,7 +116,7 @@ cd src/MailboxCleaner.Web
 dotnet user-secrets init
 dotnet user-secrets set "Google:ClientId" "YOUR_CLIENT_ID"
 dotnet user-secrets set "Google:ClientSecret" "YOUR_CLIENT_SECRET"
-dotnet user-secrets set "Google:RedirectUri" "https://localhost:5001/auth/callback"
+dotnet user-secrets set "Google:RedirectUri" "https://localhost:51179/auth/callback"
 ```
 
 ## Run locally
@@ -126,7 +126,7 @@ dotnet restore
 dotnet run --project src/MailboxCleaner.Web/MailboxCleaner.Web.csproj
 ```
 
-Open `https://localhost:5001`, sign in with Google, and visit **Overview**.
+Open `https://localhost:51179`, sign in with Google, and visit **Overview**.
 
 ## Testing
 
@@ -148,10 +148,18 @@ dotnet run -c Release --project benchmarks/MailboxCleaner.Benchmarks/MailboxClea
 
 Benchmarks cover filtering, sender grouping, domain grouping, autocomplete, bulk selection, cleanup suggestion generation, and dashboard statistics/metadata mapping over generated datasets of 100, 1,000, 10,000, and 50,000 messages.
 
+GitHub Actions runs a .NET 8 restore, build, and test workflow for pull requests. A passing CI run is not a substitute for a real Gmail OAuth/browser test.
+
+## Local SQLite storage and account security
+
+By default, metadata is stored in a SQLite file under the OS user-local application data directory (`TidyMail/mailbox.db`). To choose a path, set `Mailbox:SqlitePath` in configuration or the environment (for example `Mailbox__SqlitePath`). This is a **single-instance storage design**: use a managed shared database for several web servers and secure the host volume and backups. The file contains sender, subject and other cleanup metadata, but never email bodies.
+
+OAuth ID tokens are verified against Google and the expected client audience, and each mailbox cache is keyed by a validated Google subject. Access and refresh tokens are Data Protection-encrypted and stored in a **server-side in-process account cache** for now, not in the SQLite mailbox database. Server restarts can therefore require Google sign-in again. Production multi-instance and durable token storage still require work.
+
 ## Known limitations and future improvements
 
-- Gmail list responses only return IDs/thread IDs, so per-message metadata fetches are still required.
+- Gmail list responses only return IDs/thread IDs, so per-message metadata fetches are still required on a full scan. Attachment detection uses metadata-safe `has:attachment` message ID searches.
 - Very large mailboxes benefit from caching and progressive scan, but initial scans still take time.
-- Future incremental sync can use Gmail history IDs to avoid full rescans.
-- Session/memory cache is suitable for MVP; SQLite or a database should replace it for durable multi-device use.
+- Incremental sync through Gmail history IDs has been implemented but still requires live-account validation, including expired-cursor fallbacks.
+- SQLite metadata caching now survives local restarts. Shared database and durable encrypted token storage are still necessary for multi-instance production use.
 - Trash APIs have different semantics than label modification; partial failure reporting remains important for large cleanup operations.
