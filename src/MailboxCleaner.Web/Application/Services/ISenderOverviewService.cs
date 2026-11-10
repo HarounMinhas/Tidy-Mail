@@ -8,6 +8,7 @@ public interface ISenderOverviewService
 {
     Task<IReadOnlyList<SenderStatDto>> GetOverviewAsync(GetSenderOverviewQuery query, CancellationToken cancellationToken);
     Task<IReadOnlyList<MailItemDto>> GetMailItemsAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<MailItemDto>> ReconcileMailItemsAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<GmailLabel>> GetLabelsAsync(CancellationToken cancellationToken);
     Task ApplyActionAsync(MailBulkAction action, IReadOnlyCollection<string> messageIds, string? labelId, string? newLabelName, CancellationToken cancellationToken);
 }
