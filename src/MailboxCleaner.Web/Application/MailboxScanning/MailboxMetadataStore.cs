@@ -137,6 +137,9 @@ public sealed class MailboxMetadataStore : IMailboxMetadataStore
                     case MailboxLocalAction.MarkUnread:
                         labels.Add("UNREAD");
                         break;
+                    case MailboxLocalAction.AddLabel:
+                        if (!string.IsNullOrWhiteSpace(labelId)) labels.Add(labelId);
+                        break;
                     case MailboxLocalAction.MoveToLabel:
                         foreach (var existingLabel in labels.ToList())
                         {
