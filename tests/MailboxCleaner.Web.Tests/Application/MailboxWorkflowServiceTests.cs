@@ -4,6 +4,7 @@ using MailboxCleaner.Web.Application.MailboxScanning;
 using MailboxCleaner.Web.Application.MailboxStats;
 using MailboxCleaner.Web.Infrastructure.Google;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using System.Security.Claims;
 
 namespace MailboxCleaner.Web.Tests.Application;
@@ -47,6 +48,48 @@ public sealed class MailboxWorkflowServiceTests
 
         var cached = await store.GetMetadataAsync("user", CancellationToken.None);
         Assert.DoesNotContain(cached, message => message.MessageId == "m4");
+    }
+
+    [Fact]
+    public async Task SqliteStore_PersistsMetadataAndRejectsClearedScan()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"tidy-mail-{Guid.NewGuid():N}.db");
+        var options = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Mailbox:SqlitePath"] = path
+        }).Build();
+        try
+        {
+            var store = new SqliteMailboxMetadataStore(options);
+            var state = new MailboxScanState { UserId = "user:alice", Status = MailboxScanStatus.Discovering };
+            await store.SaveScanStateAsync(state, CancellationToken.None);
+            Assert.True(await store.TryCompleteScanAsync(state with { Status = MailboxScanStatus.Completed },
+                CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None));
+
+            var reopened = new SqliteMailboxMetadataStore(options);
+            Assert.Equal(MailboxScanStatus.Completed,
+                (await reopened.GetCurrentScanAsync("user:alice", CancellationToken.None))?.Status);
+            Assert.Equal(4, (await reopened.GetMetadataAsync("user:alice", CancellationToken.None)).Count);
+            Assert.Empty(await reopened.GetMetadataAsync("user:bob", CancellationToken.None));
+
+            await reopened.ClearAsync("user:alice", CancellationToken.None);
+            Assert.False(await store.TryCompleteScanAsync(state with { Status = MailboxScanStatus.Completed },
+                CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None));
+            Assert.Empty(await store.GetMetadataAsync("user:alice", CancellationToken.None));
+        }
+        finally
+        {
+            SqliteTestCleanup(path);
+        }
+    }
+
+    private static void SqliteTestCleanup(string path)
+    {
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+        {
+            try { File.Delete(path + suffix); }
+            catch (IOException) { /* SQLite connection pooling may keep the file briefly. */ }
+        }
     }
 
     [Fact]
