@@ -93,6 +93,17 @@ public sealed class SenderOverviewService : ISenderOverviewService
         }).ToList();
     }
 
+    /// <summary>Re-read Gmail after an uncertain partial mutation, not just local cache.</summary>
+    public async Task<IReadOnlyList<MailItemDto>> ReconcileMailItemsAsync(CancellationToken cancellationToken)
+    {
+        var liveMetadata = await _gmailClient.FetchMessageMetadataAsync(cancellationToken);
+        if (_metadataStore is not null)
+        {
+            await _metadataStore.ReplaceMetadataAsync(GetUserKey(), liveMetadata.Select(MailboxScanService.Map), cancellationToken);
+        }
+        return await GetMailItemsAsync(cancellationToken);
+    }
+
     public Task<IReadOnlyList<GmailLabel>> GetLabelsAsync(CancellationToken cancellationToken) => _gmailClient.FetchLabelsAsync(cancellationToken);
 
     public async Task ApplyActionAsync(MailBulkAction action, IReadOnlyCollection<string> messageIds, string? labelId, string? newLabelName, CancellationToken cancellationToken)
