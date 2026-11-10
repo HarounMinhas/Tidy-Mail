@@ -31,11 +31,12 @@ public sealed record GmailScanProgress(int CurrentPage, int DiscoveredMessages, 
 
 public sealed record GmailLabel(string Id, string Name, bool IsSystemLabel);
 
-public sealed record GmailActionResult(int TotalRequested, IReadOnlyList<string> SucceededMessageIds, IReadOnlyList<string> FailedMessageIds, IReadOnlyList<string> ErrorMessages)
+public sealed record GmailActionResult(int TotalRequested, IReadOnlyList<string> SucceededMessageIds, IReadOnlyList<string> FailedMessageIds, IReadOnlyList<string> ErrorMessages, IReadOnlyList<string>? UnknownMessageIds = null)
 {
     public int TotalSucceeded => SucceededMessageIds.Count;
     public int TotalFailed => FailedMessageIds.Count;
-    public bool HasFailures => TotalFailed > 0;
+    public int TotalUnknown => UnknownMessageIds?.Count ?? 0;
+    public bool HasFailures => TotalFailed > 0 || TotalUnknown > 0;
     public static GmailActionResult Empty { get; } = new(0, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
     public static GmailActionResult Success(IReadOnlyCollection<string> ids) => new(ids.Count, ids.ToList(), Array.Empty<string>(), Array.Empty<string>());
 }
