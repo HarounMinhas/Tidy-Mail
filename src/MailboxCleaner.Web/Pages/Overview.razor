@@ -1,15 +1,15 @@
 @page "/overview"
+@using System.Security.Claims
 @using MailboxCleaner.Web.Application.MailboxScanning
-@inject IHttpContextAccessor HttpContextAccessor
+@inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IMailboxMetadataStore MetadataStore
-@inject IUserMailboxKeyProvider UserMailboxKeyProvider
 @inject MailboxUserContext MailboxUserContext
 
-@if (HttpContextAccessor.HttpContext?.User?.Identity?.IsAuthenticated == true)
+@if (isAuthenticated)
 {
     @if (showScan)
     {
-        <MailboxScan UserId="@UserId" />
+        <MailboxScan UserId="@userId" />
     }
     else
     {
@@ -20,7 +20,7 @@
                 <button class="btn btn-sm btn-outline-primary" @onclick="() => showScan = true">Rescan</button>
             </div>
         }
-        <MailboxDashboard UserId="@UserId" />
+        <MailboxDashboard UserId="@userId" />
     }
 }
 else
@@ -33,12 +33,23 @@ else
 @code {
     private MailboxScanState? scanState;
     private bool showScan;
-    private string UserId => UserMailboxKeyProvider.GetCurrentUserKey();
+    private bool isAuthenticated;
+    private string userId = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
-        MailboxUserContext.CurrentUserKey = UserId;
-        scanState = await MetadataStore.GetCurrentScanAsync(UserId, CancellationToken.None);
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var subject = auth.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (auth.User.Identity?.IsAuthenticated != true || string.IsNullOrWhiteSpace(subject) ||
+            string.Equals(subject, "google-user", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        userId = $"user:{subject.Trim().ToLowerInvariant()}";
+        MailboxUserContext.CurrentUserKey = userId;
+        isAuthenticated = true;
+        scanState = await MetadataStore.GetCurrentScanAsync(userId, CancellationToken.None);
         showScan = scanState is null || scanState.Status != MailboxScanStatus.Completed;
     }
 }
