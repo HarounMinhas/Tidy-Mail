@@ -43,7 +43,7 @@ builder.Services.AddScoped<ITokenStore, SessionTokenStore>();
 builder.Services.AddScoped<IGoogleOAuthService, GoogleOAuthService>();
 builder.Services.AddScoped<IGmailCredentialFactory, GoogleUserCredentialFactory>();
 builder.Services.AddScoped<IGmailClient, GmailClient>();
-builder.Services.AddSingleton<IMailboxMetadataStore, MailboxMetadataStore>();
+builder.Services.AddSingleton<IMailboxMetadataStore, SqliteMailboxMetadataStore>();
 builder.Services.AddSingleton<MailboxOperationCoordinator>();
 builder.Services.AddScoped<IUserMailboxKeyProvider, UserMailboxKeyProvider>();
 builder.Services.AddScoped<MailboxUserContext>();
