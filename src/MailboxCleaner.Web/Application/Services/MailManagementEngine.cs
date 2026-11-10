@@ -23,6 +23,13 @@ public sealed class MailManagementEngine
     }
 
     public IReadOnlyCollection<string> SelectedMessageIds => _selectedMessageIds;
+    public void ClearSelection() => _selectedMessageIds.Clear();
+    public void SelectMessages(IEnumerable<string> ids)
+    {
+        foreach (var id in ids)
+            if (_messages.Any(message => message.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+                _selectedMessageIds.Add(id);
+    }
     public IReadOnlyCollection<string> ExpandedSenders => _expandedSenders;
 
     public IEnumerable<IGrouping<string, MailItemDto>> GroupedBySender =>
