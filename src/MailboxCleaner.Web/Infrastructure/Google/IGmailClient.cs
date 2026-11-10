@@ -10,6 +10,10 @@ public interface IGmailClient
     Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(bool forceRefresh, IProgress<GmailScanProgress>? progress, CancellationToken cancellationToken)
         => FetchMessageMetadataAsync(progress, cancellationToken);
     Task<IReadOnlyList<GmailLabel>> FetchLabelsAsync(CancellationToken cancellationToken);
+    Task<string?> GetMailboxHistoryIdAsync(CancellationToken cancellationToken)
+        => Task.FromResult<string?>(null);
+    Task<GmailHistoryDelta?> FetchHistoryDeltaAsync(string startHistoryId, CancellationToken cancellationToken)
+        => Task.FromResult<GmailHistoryDelta?>(null);
     Task<GmailActionResult> TrashMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken);
     Task<GmailActionResult> ArchiveMessagesAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken);
     Task<GmailActionResult> MarkMessagesReadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken);
@@ -17,6 +21,9 @@ public interface IGmailClient
     Task<GmailActionResult> MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken);
     Task<GmailLabel> CreateLabelAsync(string labelName, CancellationToken cancellationToken);
 }
+
+public sealed record GmailHistoryDelta(string LastHistoryId, IReadOnlyList<GmailMessageMetadata> UpdatedMessages,
+    IReadOnlyCollection<string> DeletedMessageIds);
 
 public sealed record GmailScanProgress(int CurrentPage, int DiscoveredMessages, int ScannedMessages, bool DiscoveryComplete);
 
