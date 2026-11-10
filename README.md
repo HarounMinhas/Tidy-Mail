@@ -10,7 +10,7 @@ Tidy Mail is a .NET 8 Blazor Server Gmail cleanup assistant for people with chao
 4. Metadata is cached by validated Google account subject in a local SQLite database; untrusted/anonymous sessions are never used as mailbox cache keys.
 5. Dashboard statistics, sender grouping, filtering, sorting, selections, and cleanup suggestions run from local metadata only.
 6. Gmail is called again only when the user confirms a write action.
-7. After Gmail confirms a write action, local metadata is updated for the successful message IDs.
+7. After Gmail acknowledges a write action, local metadata is updated only for acknowledged message IDs. Rejected and uncertain results are shown separately; the UI avoids automatic retries for uncertain messages.
 
 ## Metadata-only privacy approach
 
@@ -80,7 +80,7 @@ The dashboard uses local metadata only to show:
 - Largest cleanup groups
 - Recent scan date
 
-Cleanup suggestions are explainable and metadata-only. Suggestions include old read mail, old unread mail, old newsletters, high-volume noreply senders, notification senders, bulk senders, and high-volume domains. Tidy Mail never auto-deletes anything; every action requires preview and confirmation.
+Cleanup suggestions are explainable and metadata-only. Suggestions include old read mail, old unread mail, old newsletters, high-volume noreply senders, notification senders, bulk senders, and high-volume domains. Clicking a suggestion **only preselects messages for review**; it never automatically chooses Archive, Trash or any other operation. Every Gmail mutation requires a separate action choice, a preview and explicit confirmation.
 
 ## Filtering, sorting, and selection
 
@@ -98,10 +98,11 @@ Supported actions:
 - Archive selected messages by removing `INBOX`
 - Mark selected messages read by removing `UNREAD`
 - Mark selected messages unread by adding `UNREAD`
-- Move selected messages to an existing label
+- Move selected messages to an existing label (**removes INBOX and other custom labels**, keeping system flags)
 - Create a label and move selected messages to it
+- Add an existing/new label **without removing INBOX or any existing labels**
 
-Batch modify is used for Gmail label modifications where possible with chunks of up to 1000 message IDs. Trash keeps Gmail trash semantics. Result objects report total requested, succeeded, failed, failed IDs, error messages, and partial success state. Local cache updates are applied only for successful message IDs, including removing old user labels when messages are moved to a different label.
+Batch modify is used for Gmail label modifications where possible with chunks of up to 1000 message IDs. Trash keeps Gmail trash semantics. Result objects distinguish **Gmail-acknowledged**, **definitively rejected**, and **uncertain** message IDs (for example, a network timeout after sending). The UI offers a fresh confirmation for rejected IDs after reconciliation; uncertain IDs are not blindly retried because Gmail may already have applied them. SQLite cache updates only acknowledged IDs, and failed local cache writes do not erase Gmail acknowledgements. A move removes prior user labels; adding a label never removes them.
 
 ## Prerequisites
 
@@ -155,6 +156,10 @@ GitHub Actions runs a .NET 8 restore, build, and test workflow for pull requests
 By default, metadata is stored in a SQLite file under the OS user-local application data directory (`TidyMail/mailbox.db`). To choose a path, set `Mailbox:SqlitePath` in configuration or the environment (for example `Mailbox__SqlitePath`). This is a **single-instance storage design**: use a managed shared database for several web servers and secure the host volume and backups. The file contains sender, subject and other cleanup metadata, but never email bodies.
 
 OAuth ID tokens are verified against Google and the expected client audience, and each mailbox cache is keyed by a validated Google subject. Access and refresh tokens are **Data Protection-encrypted and persisted in SQLite** by validated Google subject. The Data Protection key ring is stored in the OS local application data directory under `TidyMail/keys` by default (override with `Mailbox:DataProtectionKeysPath`). Keep both the SQLite file **and** the key ring private, persistent and backed up; losing the key ring renders saved tokens unreadable. A multi-instance deployment requires a shared database and shared protected key ring, which is not yet provided by this local setup.
+
+## Important remaining validation
+
+The core flows compile and have automated tests, but the application still needs real browser and Gmail OAuth end-to-end tests with **separate test accounts**. Verify that Gmail really applies every action, inspect expired/revoked credentials, uncertain API outcomes, multiuser isolation, large-mailbox performance and account disconnect behavior before public deployment. No production Gmail messages were modified as part of this development branch.
 
 ## Known limitations and future improvements
 
