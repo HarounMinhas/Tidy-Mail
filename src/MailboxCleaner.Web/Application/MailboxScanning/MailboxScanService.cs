@@ -48,8 +48,8 @@ public sealed class MailboxScanService
                     foreach (var deleted in delta.DeletedMessageIds) merged.Remove(deleted);
                     foreach (var item in delta.UpdatedMessages)
                     {
-                        var mapped = Map(item);
-                        merged[mapped.MessageId] = mapped;
+                        var changedMetadata = Map(item);
+                        merged[changedMetadata.MessageId] = changedMetadata;
                     }
 
                     var updated = merged.Values.OrderByDescending(m => m.ReceivedAt).ToList();
