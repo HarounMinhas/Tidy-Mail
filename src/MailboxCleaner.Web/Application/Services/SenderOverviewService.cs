@@ -15,19 +15,22 @@ public sealed class SenderOverviewService : ISenderOverviewService
     private readonly GmailBulkActionService? _bulkActionService;
     private readonly IUserMailboxKeyProvider? _userMailboxKeyProvider;
     private readonly MailboxUserContext? _mailboxUserContext;
+    private readonly MailboxOperationCoordinator _coordinator;
 
     public SenderOverviewService(ISenderAggregationService aggregationService, IGmailClient gmailClient)
     {
         _gmailClient = gmailClient;
+        _coordinator = new MailboxOperationCoordinator();
     }
 
-    public SenderOverviewService(ISenderAggregationService aggregationService, IGmailClient gmailClient, IMailboxMetadataStore metadataStore, GmailBulkActionService bulkActionService, IUserMailboxKeyProvider userMailboxKeyProvider, MailboxUserContext mailboxUserContext)
+    public SenderOverviewService(ISenderAggregationService aggregationService, IGmailClient gmailClient, IMailboxMetadataStore metadataStore, GmailBulkActionService bulkActionService, IUserMailboxKeyProvider userMailboxKeyProvider, MailboxUserContext mailboxUserContext, MailboxOperationCoordinator? coordinator = null)
     {
         _gmailClient = gmailClient;
         _metadataStore = metadataStore;
         _bulkActionService = bulkActionService;
         _userMailboxKeyProvider = userMailboxKeyProvider;
         _mailboxUserContext = mailboxUserContext;
+        _coordinator = coordinator ?? new MailboxOperationCoordinator();
     }
 
     public async Task<IReadOnlyList<SenderStatDto>> GetOverviewAsync(GetSenderOverviewQuery query, CancellationToken cancellationToken)
@@ -98,11 +101,11 @@ public sealed class SenderOverviewService : ISenderOverviewService
     /// <summary>Re-read Gmail after an uncertain partial mutation, not just local cache.</summary>
     public async Task<IReadOnlyList<MailItemDto>> ReconcileMailItemsAsync(CancellationToken cancellationToken)
     {
+        var userKey = GetUserKey();
+        using var operation = await _coordinator.EnterAsync(userKey, cancellationToken);
         var liveMetadata = await _gmailClient.FetchMessageMetadataAsync(true, null, cancellationToken);
         if (_metadataStore is not null)
-        {
-            await _metadataStore.ReplaceMetadataAsync(GetUserKey(), liveMetadata.Select(MailboxScanService.Map), cancellationToken);
-        }
+            await _metadataStore.ReplaceMetadataAsync(userKey, liveMetadata.Select(MailboxScanService.Map), cancellationToken);
         return await GetMailItemsAsync(cancellationToken);
     }
 
