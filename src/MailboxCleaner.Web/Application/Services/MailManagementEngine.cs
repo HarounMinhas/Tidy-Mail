@@ -71,7 +71,9 @@ public sealed class MailManagementEngine
         _selectedMessageIds.Remove(id);
     }
 
-    public IReadOnlyList<MailItemDto> FilterMessages(string senderOrKeyword, string status, string folder, bool? hasAttachment)
+    public IReadOnlyList<MailItemDto> FilterMessages(string senderOrKeyword, string status, string folder, bool? hasAttachment,
+        string ageBucket = "", bool newsletterOnly = false, bool notificationOnly = false, string? labelId = null,
+        DateTimeOffset? clock = null)
     {
         IEnumerable<MailItemDto> results = _messages;
 
@@ -102,6 +104,18 @@ public sealed class MailManagementEngine
         {
             results = results.Where(message => message.HasAttachment == hasAttachment.Value);
         }
+
+        var now = clock ?? DateTimeOffset.UtcNow;
+        results = ageBucket switch
+        {
+            "6m" => results.Where(message => message.ReceivedAt < now.AddMonths(-6)),
+            "1y" => results.Where(message => message.ReceivedAt < now.AddYears(-1)),
+            _ => results
+        };
+        if (newsletterOnly) results = results.Where(message => message.IsNewsletterLike);
+        if (notificationOnly) results = results.Where(message => message.IsNotificationLike);
+        if (!string.IsNullOrWhiteSpace(labelId))
+            results = results.Where(message => message.LabelIds?.Contains(labelId, StringComparer.OrdinalIgnoreCase) == true);
 
         return results.OrderByDescending(message => message.ReceivedAt).ToList();
     }
