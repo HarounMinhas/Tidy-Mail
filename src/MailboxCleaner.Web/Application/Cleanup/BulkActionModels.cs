@@ -8,7 +8,8 @@ public enum CleanupBulkAction
     Archive,
     MarkRead,
     MarkUnread,
-    MoveToLabel
+    MoveToLabel,
+    AddLabel
 }
 
 public sealed record BulkActionPreview(
