@@ -18,6 +18,7 @@ public sealed class GmailActionIntegrationTests
         await service.ApplyActionAsync(MailBulkAction.MarkUnread, ids, null, null, CancellationToken.None);
         await service.ApplyActionAsync(MailBulkAction.Move, ids, "Label_Existing", null, CancellationToken.None);
         await service.ApplyActionAsync(MailBulkAction.Move, ids, null, "Projects", CancellationToken.None);
+        await service.ApplyActionAsync(MailBulkAction.AddLabel, ids, "Label_Existing", null, CancellationToken.None);
 
         Assert.Equal(2, gmail.Trashed.Count);
         Assert.Equal(2, gmail.Archived.Count);
@@ -26,6 +27,7 @@ public sealed class GmailActionIntegrationTests
         Assert.Contains("Label_Existing", gmail.MovedToLabels);
         Assert.Contains("Projects", gmail.CreatedLabels);
         Assert.Contains("Label_Projects", gmail.MovedToLabels);
+        Assert.Contains("Label_Existing", gmail.AddedLabels);
     }
 
 
@@ -54,6 +56,7 @@ public sealed class GmailActionIntegrationTests
         public List<string> Read { get; } = new();
         public List<string> Unread { get; } = new();
         public List<string> MovedToLabels { get; } = new();
+        public List<string> AddedLabels { get; } = new();
         public List<string> CreatedLabels { get; } = new();
         public IReadOnlyList<GmailMessageMetadata> Metadata { get; init; } = Array.Empty<GmailMessageMetadata>();
         public IReadOnlyList<GmailLabel> Labels { get; init; } = Array.Empty<GmailLabel>();
@@ -66,6 +69,7 @@ public sealed class GmailActionIntegrationTests
         public Task<GmailActionResult> MarkMessagesReadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) { Read.AddRange(messageIds); return Task.FromResult(GmailActionResult.Success(messageIds)); }
         public Task<GmailActionResult> MarkMessagesUnreadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) { Unread.AddRange(messageIds); return Task.FromResult(GmailActionResult.Success(messageIds)); }
         public Task<GmailActionResult> MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken) { MovedToLabels.Add(labelId); return Task.FromResult(GmailActionResult.Success(messageIds)); }
+        public Task<GmailActionResult> AddLabelToMessagesAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken) { AddedLabels.Add(labelId); return Task.FromResult(GmailActionResult.Success(messageIds)); }
         public Task<GmailLabel> CreateLabelAsync(string labelName, CancellationToken cancellationToken) { CreatedLabels.Add(labelName); return Task.FromResult(new GmailLabel($"Label_{labelName}", labelName, false)); }
     }
 }
