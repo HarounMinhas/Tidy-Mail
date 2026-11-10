@@ -41,7 +41,7 @@
         {
             var progress = new Progress<MailboxScanState>(state =>
             {
-                if (!scanRunning || state.ScanId != scanState.ScanId && scanState.Status == MailboxScanStatus.Completed)
+                if (!scanRunning || scanState.Status == MailboxScanStatus.Completed && state.Status != MailboxScanStatus.Completed)
                     return;
                 scanState = state;
                 _ = InvokeAsync(StateHasChanged);
