@@ -313,7 +313,7 @@ else if (!isLoading)
         }
     }
 
-    private async Task RefreshAsync()
+    private async Task RefreshAsync(bool fromGmail = false)
     {
         isLoading = true;
         StateHasChanged();
@@ -321,7 +321,9 @@ else if (!isLoading)
         try
         {
             progressMessage = "Loading Gmail metadata…";
-            allMessages = (await OverviewService.GetMailItemsAsync(CancellationToken.None)).ToList();
+            allMessages = (fromGmail
+                ? await OverviewService.ReconcileMailItemsAsync(CancellationToken.None)
+                : await OverviewService.GetMailItemsAsync(CancellationToken.None)).ToList();
             allSenders = BuildSenderStats(allMessages);
             existingLabels = (await OverviewService.GetLabelsAsync(CancellationToken.None)).ToList();
             selectedDestinationLabelId = MoveDestinationLabels.FirstOrDefault()?.Id ?? string.Empty;
@@ -424,17 +426,17 @@ else if (!isLoading)
             errorMessage = string.Empty;
             successMessage = string.Empty;
             await OverviewService.ApplyActionAsync(pendingAction.Value, actionPreview.MessageIds, selectedDestinationLabelId, newFolderName, CancellationToken.None);
-            successMessage = $"{pendingAction} completed for {actionPreview.SelectedCount} messages.";
+            successMessage = $"Gmail accepted {pendingAction} for {actionPreview.SelectedCount} messages.";
             CancelAction();
             await RefreshAsync();
             await OnMailboxChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            errorMessage = $"{ex.Message} Refreshing Gmail metadata to reflect any completed changes…";
-            await RefreshAsync();
+            errorMessage = $"{ex.Message} Checking Gmail to reconcile any partially completed changes…";
+            await RefreshAsync(fromGmail: true);
             await OnMailboxChanged.InvokeAsync();
-            errorMessage = $"{ex.Message} The mailbox was refreshed to reflect any changes that completed before the failure.";
+            errorMessage = $"{ex.Message} Mailbox reconciliation attempted; verify any failed messages before retrying.";
         }
         finally
         {
