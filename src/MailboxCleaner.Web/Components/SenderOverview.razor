@@ -404,20 +404,32 @@ else if (!isLoading)
             ? visibleMessages.Select(message => message.Id).ToList()
             : new List<string>();
         engine.ToggleSenderSelection(senderEmail, isChecked, visibleIds);
+        InvalidatePreview();
     }
 
     private void SelectVisible()
     {
         var visibleSenders = filteredSenders.Select(s => s.Email).ToHashSet(StringComparer.OrdinalIgnoreCase);
         engine.SelectMessages(filteredMessages.Where(m => visibleSenders.Contains(m.SenderEmail)).Select(m => m.Id));
+        InvalidatePreview();
     }
 
-    private void ClearSelection() => engine.ClearSelection();
+    private void ClearSelection()
+    {
+        engine.ClearSelection();
+        InvalidatePreview();
+    }
 
     private void ToggleMessageSelection(string messageId, ChangeEventArgs args)
     {
         var isChecked = args.Value is bool value && value;
         engine.ToggleMessageSelection(messageId, isChecked);
+        InvalidatePreview();
+    }
+
+    private void InvalidatePreview()
+    {
+        if (showActionPane && !actionInProgress) CancelAction();
     }
 
     private void OpenActionPane(MailBulkAction action)
@@ -433,6 +445,12 @@ else if (!isLoading)
     {
         if (actionInProgress || !pendingAction.HasValue || actionPreview is null || actionPreview.SelectedCount == 0)
         {
+            return;
+        }
+        if (!actionPreview.MessageIds.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(engine.SelectedMessageIds))
+        {
+            CancelAction();
+            errorMessage = "The selection changed. Open the action preview again before confirming.";
             return;
         }
 
