@@ -259,6 +259,9 @@ public sealed class GmailClient : IGmailClient
     public Task<GmailActionResult> MarkMessagesReadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: Array.Empty<string>(), removeLabels: ["UNREAD"], cancellationToken);
     public Task<GmailActionResult> MarkMessagesUnreadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: ["UNREAD"], removeLabels: Array.Empty<string>(), cancellationToken);
 
+    public Task<GmailActionResult> AddLabelToMessagesAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken)
+        => ModifyMessagesAsync(messageIds, addLabels: [labelId], removeLabels: Array.Empty<string>(), cancellationToken);
+
     public async Task<GmailActionResult> MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken)
     {
         if (messageIds.Count == 0) return GmailActionResult.Empty;
