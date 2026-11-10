@@ -5,6 +5,7 @@ using MailboxCleaner.Web.Infrastructure.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace MailboxCleaner.Web.Tests;
 
@@ -40,7 +41,7 @@ public sealed class GoogleAuthControllerTests
     {
         var context = new DefaultHttpContext();
         context.Features.Set<ISessionFeature>(new TestSessionFeature(session));
-        return new GoogleAuthController(new TestOAuthService(), new TestTokenStore(), new MailboxMetadataStore(), new TestUserMailboxKeyProvider())
+        return new GoogleAuthController(new TestOAuthService(), new TestTokenStore(), new MailboxMetadataStore(), new TestUserMailboxKeyProvider(), new MailboxUserContext(), Options.Create(new GoogleOAuthOptions { ClientId = "test-client" }))
         {
             ControllerContext = new ControllerContext { HttpContext = context }
         };
