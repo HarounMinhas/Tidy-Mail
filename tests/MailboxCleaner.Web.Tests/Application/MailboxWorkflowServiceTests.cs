@@ -50,6 +50,36 @@ public sealed class MailboxWorkflowServiceTests
     }
 
     [Fact]
+    public async Task ClearedMailbox_DoesNotResurrectAnInFlightScan()
+    {
+        var store = new MailboxMetadataStore();
+        var state = new MailboxScanState { UserId = "user", Status = MailboxScanStatus.Discovering };
+        await store.SaveScanStateAsync(state, CancellationToken.None);
+        await store.ClearAsync("user", CancellationToken.None);
+
+        var accepted = await store.TryCompleteScanAsync(state with { Status = MailboxScanStatus.Completed },
+            CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None);
+        Assert.False(accepted);
+        Assert.Null(await store.GetCurrentScanAsync("user", CancellationToken.None));
+        Assert.Empty(await store.GetMetadataAsync("user", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task OnlyTheLatestScanCanReplaceMailboxMetadata()
+    {
+        var store = new MailboxMetadataStore();
+        var first = new MailboxScanState { UserId = "user", Status = MailboxScanStatus.Discovering };
+        var second = new MailboxScanState { UserId = "user", Status = MailboxScanStatus.Discovering };
+        await store.SaveScanStateAsync(first, CancellationToken.None);
+        await store.SaveScanStateAsync(second, CancellationToken.None);
+
+        Assert.False(await store.TryCompleteScanAsync(first with { Status = MailboxScanStatus.Completed },
+            CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None));
+        Assert.True(await store.TryCompleteScanAsync(second with { Status = MailboxScanStatus.Completed },
+            CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None));
+    }
+
+    [Fact]
     public async Task StoreUpdatesOnlySuccessfulMessageIdsAfterActions()
     {
         var store = new MailboxMetadataStore();
