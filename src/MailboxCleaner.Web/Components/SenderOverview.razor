@@ -118,7 +118,11 @@
 }
 else if (!isLoading)
 {
-    <div class="mb-3 text-muted">Selected messages: @engine.SelectedMessageIds.Count (of @filteredMessages.Count currently matching message filters). Selecting a sender selects only its currently visible messages.</div>
+    <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
+        <span class="text-muted">Selected messages: @engine.SelectedMessageIds.Count. Selecting a sender selects only its currently visible messages.</span>
+        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@actionInProgress" @onclick="SelectVisible">Select visible</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(actionInProgress || engine.SelectedMessageIds.Count == 0)" @onclick="ClearSelection">Clear selection</button>
+    </div>
     <div class="row g-2 mb-3"><div class="col-md-3"><select class="form-select" @bind="SortField"><option value="Count">Message count</option><option value="Name">Sender name</option><option value="Email">Email</option><option value="Newest">Newest message</option><option value="Oldest">Oldest message</option></select></div><div class="col-md-2"><select class="form-select" @bind="SortDirection"><option value="Desc">Descending</option><option value="Asc">Ascending</option></select></div></div>
 
     @foreach (var sender in filteredSenders)
@@ -401,6 +405,14 @@ else if (!isLoading)
             : new List<string>();
         engine.ToggleSenderSelection(senderEmail, isChecked, visibleIds);
     }
+
+    private void SelectVisible()
+    {
+        var visibleSenders = filteredSenders.Select(s => s.Email).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        engine.SelectMessages(filteredMessages.Where(m => visibleSenders.Contains(m.SenderEmail)).Select(m => m.Id));
+    }
+
+    private void ClearSelection() => engine.ClearSelection();
 
     private void ToggleMessageSelection(string messageId, ChangeEventArgs args)
     {
