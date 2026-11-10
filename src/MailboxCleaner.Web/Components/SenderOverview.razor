@@ -202,6 +202,14 @@ else if (!isLoading)
             @if (pendingAction == MailBulkAction.Delete)
             {
                 <div class="alert alert-warning">The selected messages will be moved to Gmail Trash. Check the sender and subject examples below before confirming.</div>
+                @if (RequiresExtraConfirmation)
+                {
+                    <div class="alert alert-danger">This selection includes unread, recent, starred or important messages. Review carefully before moving them to Trash.</div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="ackRisk" @bind="acknowledgesRisk" />
+                        <label class="form-check-label" for="ackRisk">I reviewed the potentially important messages and confirm this action.</label>
+                    </div>
+                }
             }
             <p class="mb-1"><strong>Affected senders</strong></p>
             <ul>
@@ -280,6 +288,7 @@ else if (!isLoading)
     private MailBulkAction? pendingAction;
     private ActionPreview? actionPreview;
     private List<MailItemDto> previewMessages = new();
+    private bool acknowledgesRisk;
     [Parameter] public EventCallback OnMailboxChanged { get; set; }
     [Parameter] public IReadOnlyCollection<string> InitialSelectedMessageIds { get; set; } = Array.Empty<string>();
     private string selectedDestinationLabelId = "INBOX";
@@ -302,7 +311,13 @@ else if (!isLoading)
         .OrderBy(label => label.Name)
         .ToList();
 
+    private bool RequiresExtraConfirmation => pendingAction == MailBulkAction.Delete && previewMessages.Any(message =>
+        !message.IsRead || message.ReceivedAt >= DateTimeOffset.UtcNow.AddDays(-30)
+        || message.LabelIds?.Contains("STARRED", StringComparer.OrdinalIgnoreCase) == true
+        || message.LabelIds?.Contains("IMPORTANT", StringComparer.OrdinalIgnoreCase) == true);
+
     private bool CanConfirmAction => !actionInProgress
+        && (!RequiresExtraConfirmation || acknowledgesRisk)
         && pendingAction.HasValue
         && actionPreview is not null
         && actionPreview.SelectedCount > 0
@@ -434,6 +449,7 @@ else if (!isLoading)
 
     private void OpenActionPane(MailBulkAction action)
     {
+        acknowledgesRisk = false;
         pendingAction = action;
         showActionPane = true;
         actionPreview = engine.PreviewAction(action, selectedDestinationLabelId);
@@ -486,6 +502,7 @@ else if (!isLoading)
         pendingAction = null;
         actionPreview = null;
         previewMessages.Clear();
+        acknowledgesRisk = false;
         newFolderName = string.Empty;
     }
 
