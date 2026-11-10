@@ -36,7 +36,18 @@ public sealed class MailboxScanService
             await _store.SaveScanStateAsync(state, cancellationToken);
             progress?.Report(state);
 
-            var metadata = await _gmailClient.FetchMessageMetadataAsync(cancellationToken);
+            var gmailProgress = new Progress<GmailScanProgress>(update =>
+            {
+                progress?.Report(state with
+                {
+                    Status = update.DiscoveryComplete ? MailboxScanStatus.FetchingMetadata : MailboxScanStatus.Discovering,
+                    StatusMessage = update.DiscoveryComplete ? "Fetching Gmail metadata" : "Discovering Gmail message IDs",
+                    CurrentPage = update.CurrentPage,
+                    TotalDiscoveredMessages = update.DiscoveryComplete ? update.DiscoveredMessages : null,
+                    ScannedMessages = update.ScannedMessages
+                });
+            });
+            var metadata = await _gmailClient.FetchMessageMetadataAsync(gmailProgress, cancellationToken);
             var mapped = metadata.Select(Map).ToList();
             state = state with
             {
