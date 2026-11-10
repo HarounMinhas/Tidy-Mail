@@ -71,11 +71,10 @@ public sealed class SenderOverviewService : ISenderOverviewService
         var metadataItems = cachedMetadata.Count > 0
             ? cachedMetadata.Select(ToGmailMetadata).ToList()
             : await _gmailClient.FetchMessageMetadataAsync(cancellationToken);
-        var labelsById = cachedMetadata.Count > 0
-            ? new Dictionary<string, GmailLabel>(StringComparer.OrdinalIgnoreCase)
-            : (await _gmailClient.FetchLabelsAsync(cancellationToken))
-                .GroupBy(label => label.Id, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        // Label names must be available even when message metadata came from local cache.
+        var labelsById = (await _gmailClient.FetchLabelsAsync(cancellationToken))
+            .GroupBy(label => label.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         return metadataItems.Select(item =>
         {
@@ -122,6 +121,9 @@ public sealed class SenderOverviewService : ISenderOverviewService
 
     private static string ResolvePrimaryFolder(IReadOnlyCollection<string> labels, IReadOnlyDictionary<string, GmailLabel> labelsById)
     {
+        if (labels.Contains("TRASH", StringComparer.OrdinalIgnoreCase)) return "Trash";
+        if (labels.Contains("SPAM", StringComparer.OrdinalIgnoreCase)) return "Spam";
+        if (labels.Contains("DRAFT", StringComparer.OrdinalIgnoreCase)) return "Draft";
         if (labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase)) return "Inbox";
 
         var userLabel = labels
