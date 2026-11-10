@@ -18,9 +18,8 @@ public sealed class SqliteTokenStoreTests
 
         Assert.Equal("new-access", merged.AccessToken);
         Assert.Equal("valid-refresh", merged.RefreshToken);
-        Assert.Equal("fresh-refresh", newAccess with { RefreshToken = "fresh-refresh" } is { RefreshToken: "fresh-refresh" }
-            ? (newAccess with { RefreshToken = "fresh-refresh" }).PreserveExistingRefreshToken(existing).RefreshToken
-            : string.Empty);
+        var rotated = newAccess with { RefreshToken = "fresh-refresh" };
+        Assert.Equal("fresh-refresh", rotated.PreserveExistingRefreshToken(existing).RefreshToken);
     }
 
     [Fact]
