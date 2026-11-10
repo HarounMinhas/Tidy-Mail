@@ -7,11 +7,14 @@ public sealed class MailboxScanService
 {
     private readonly IGmailClient _gmailClient;
     private readonly IMailboxMetadataStore _store;
+    private readonly MailboxOperationCoordinator _coordinator;
 
-    public MailboxScanService(IGmailClient gmailClient, IMailboxMetadataStore store)
+    public MailboxScanService(IGmailClient gmailClient, IMailboxMetadataStore store,
+        MailboxOperationCoordinator? coordinator = null)
     {
         _gmailClient = gmailClient;
         _store = store;
+        _coordinator = coordinator ?? new MailboxOperationCoordinator();
     }
 
     public async Task<MailboxScanState> GetOrCreateScanAsync(string userId, CancellationToken cancellationToken)
@@ -22,6 +25,7 @@ public sealed class MailboxScanService
 
     public async Task<MailboxScanState> ScanAsync(string userId, IProgress<MailboxScanState>? progress, CancellationToken cancellationToken)
     {
+        using var operation = await _coordinator.EnterAsync(userId, cancellationToken);
         var state = new MailboxScanState { UserId = userId, Status = MailboxScanStatus.Discovering, StatusMessage = "Discovering Gmail messages" };
         await _store.SaveScanStateAsync(state, cancellationToken);
         progress?.Report(state);
@@ -34,8 +38,6 @@ public sealed class MailboxScanService
 
             var metadata = await _gmailClient.FetchMessageMetadataAsync(cancellationToken);
             var mapped = metadata.Select(Map).ToList();
-            await _store.ReplaceMetadataAsync(userId, mapped, cancellationToken);
-
             state = state with
             {
                 Status = MailboxScanStatus.Completed,
@@ -46,7 +48,8 @@ public sealed class MailboxScanService
                 StatusMessage = "Mailbox scan complete",
                 CachedMetadata = mapped
             };
-            await _store.SaveScanStateAsync(state, cancellationToken);
+            if (!await _store.TryCompleteScanAsync(state, mapped, cancellationToken))
+                return state with { Status = MailboxScanStatus.Cancelled, StatusMessage = "Scan discarded because the account changed or signed out" };
             progress?.Report(state);
             return state;
         }
