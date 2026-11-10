@@ -68,7 +68,9 @@ public sealed class SenderOverviewService : ISenderOverviewService
     {
         var userKey = GetUserKey();
         var cachedMetadata = _metadataStore is null ? Array.Empty<MailboxMetadata>() : await _metadataStore.GetMetadataAsync(userKey, cancellationToken);
-        var metadataItems = cachedMetadata.Count > 0
+        var scan = _metadataStore is null ? null : await _metadataStore.GetCurrentScanAsync(userKey, cancellationToken);
+        var hasLocalSnapshot = cachedMetadata.Count > 0 || scan?.Status == MailboxScanStatus.Completed;
+        var metadataItems = hasLocalSnapshot
             ? cachedMetadata.Select(ToGmailMetadata).ToList()
             : await _gmailClient.FetchMessageMetadataAsync(cancellationToken);
         // Label names must be available even when message metadata came from local cache.
@@ -96,7 +98,7 @@ public sealed class SenderOverviewService : ISenderOverviewService
     /// <summary>Re-read Gmail after an uncertain partial mutation, not just local cache.</summary>
     public async Task<IReadOnlyList<MailItemDto>> ReconcileMailItemsAsync(CancellationToken cancellationToken)
     {
-        var liveMetadata = await _gmailClient.FetchMessageMetadataAsync(cancellationToken);
+        var liveMetadata = await _gmailClient.FetchMessageMetadataAsync(true, null, cancellationToken);
         if (_metadataStore is not null)
         {
             await _metadataStore.ReplaceMetadataAsync(GetUserKey(), liveMetadata.Select(MailboxScanService.Map), cancellationToken);
