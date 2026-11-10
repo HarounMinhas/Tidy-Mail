@@ -27,7 +27,7 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 | TM-009/010 | Scanvoortgang en cancellogica toegevoegd | Grote-mailbox browser-/canceltest |
 | TM-011/012/013 | Transient retry, nul-berichten-cache, expliciete force-refresh | API-foutmatrixtests |
 | TM-015/016/017 | Dashboard-updates na acties, labelnamen en systeemprecedentie | Echte Gmail label/Trash test |
-| TM-019/020/022 | Extra filters, klikbare suggesties, voorgegroepeerde renders | Browser-UX/performance |
+| TM-019/020/022 | Extra filters, klikbare suggesties, voorgegroepeerde renders | **Functionele fout:** `Preview selected` opent momenteel automatisch een Archive-preview; suggestieactie correct mappen, daarna browser-UX/performance controleren |
 | TM-024/025 | Geselecteerde-ID labelreads en extra Trash waarschuwing | Grote selectie / hersteltest |
 | TM-027 | Durable SQLite metadata, atomische scanopslag, persistentietest | Host/volume, retentie, backup/multi-instance aanpak |
 | TM-028 | Google-tokens versleuteld in SQLite + blijvende key ring | Verificatie na echte herstart en secure key management |
@@ -166,7 +166,7 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 - [ ] **TM-017 [P1] Juiste mapstatus:** toon `Trash`/`Spam`/`Sent`/`Draft` correct, ook wanneer een bericht extra gebruikerslabels heeft; herbekijk `ResolvePrimaryFolder`.
 - [ ] **TM-018 [P1] 'Move' versus 'add label' definiëren:** documenteer en test wanneer `INBOX` en bestaande gebruikerslabels verwijderd worden. Vermijd onverwacht verlies van labels; maak de semantiek zichtbaar in de preview.
 - [ ] **TM-019 [P2] Alle bestaande filtermogelijkheden in UI:** voeg de al ondersteunde leeftijdsfilters, nieuwsbrief-, notificatie- en expliciete Gmail-label-filters toe; combineerbaar met sender/domain/subject/read/attachment.
-- [ ] **TM-020 [P2] Suggesties uitvoerbaar maken:** klik op cleanup-suggestie -> exacte berichtselectie -> preview -> bevestiging -> Gmail-actie -> dashboardupdate. Geen automatische deletions.
+- [ ] **TM-020 [P1] Suggesties veilig en correct uitvoerbaar maken:** klik op cleanup-suggestie -> exacte berichtselectie -> preview -> bevestiging -> Gmail-actie -> dashboardupdate. **Open niet standaard Archive voor suggesties met actie `Preview selected`** (zoals oude ongelezen mails): `SenderOverview.razor` roept nu bij `InitialSelectedMessageIds` onvoorwaardelijk `OpenActionPane(MailBulkAction.Archive)` aan. Toon eerst alleen de selectie of map expliciet de voorgestelde actie, met aparte gebruikerskeuze. Geen automatische mutaties of deletions.
 - [ ] **TM-021 [P2] UX-afwerking:** duidelijke lege mailbox, verlopen token, foutmelding, retry, accountwissel, laden en gedeeltelijke successen; keyboardtoegankelijkheid, mobiel/responsief gedrag en heldere waarschuwingslabels.
 - [ ] **TM-022 [P2] Renderperformance:** voorkom herhaald filteren van `filteredMessages` voor iedere afzender bij elke render; pre-group berichten, overweeg virtualisatie en debounce van zoekinvoer op basis van benchmarks.
 - **Acceptatie:** elk filter en elke suggestie is bereikbaar via de UI, gecombineerd selecteren werkt veilig, labelnamen zijn leesbaar en tellerwaarden kloppen na een actie.
