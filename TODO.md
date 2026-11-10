@@ -1,6 +1,6 @@
 # Tidy Mail - TODO & volledig implementatieplan
 
-> **Stand van zaken:** 27 oktober 2026  
+> **Stand van zaken:** 11 november 2026 (oorspronkelijke audit: 27 oktober 2026)  
 > **Repository:** [HarounMinhas/Tidy-Mail](https://github.com/HarounMinhas/Tidy-Mail)  
 > **Gecontroleerde basis:** `main`, commit `98983379b7cc9f8e65bcfac96ecb4f6f58e62e59` (26 juni 2026).  
 > **Bronnen:** actuele code, README, bestaande tests en eerder gesloten GitHub-issues/PR's.  
@@ -38,6 +38,28 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 **Nog niet voltooid:** o.a. volledige Gmail-resultaatverificatie/undo, zware performance- en securitytests, multi-instance deployment, privacy-/retentiebeleid, Google OAuth-appverificatie, browser-E2E en optionele productuitbreidingen TM-043 t/m TM-048. De resterende originele checkboxes hieronder blijven de werkbacklog.
 
 **Externe releasevoorwaarden:** een gecontroleerd Google Cloud OAuth-project, afzonderlijke Gmail-testaccounts en een gekozen hosting-/back-upomgeving zijn nodig voor de echte integratie- en productietests. Er zijn **geen** wijzigingen aan een echte Gmail-mailbox gedaan in deze PR.
+
+## Aanvulling - belangrijke functionele verbeteringen (11 november 2026)
+
+**Op werkbranch / concept-PR [#12](https://github.com/HarounMinhas/Tidy-Mail/pull/12), nog niet in main.** De .NET 8-build en unit-/fake-Gmailtests zijn geslaagd. Echte Gmail- en browser-E2E-tests zijn niet uitgevoerd; code aanwezig betekent dus nog niet volledig afgevinkt.
+
+| Taak | Code geimplementeerd | Wat nog nodig is |
+| --- | --- | --- |
+| **TM-020, P0** | Suggesties selecteren alleen berichten ter beoordeling; geen standaard Archive-preview en geen automatische Gmail-mutatie. | Browser-E2E van review en alle suggestietypes |
+| **TM-008 / TM-026, P1** | Gmail-resultaten onderscheiden: acknowledged, definitief afgewezen en onzeker. Geen automatische retry bij onzekere resultaten. Gerichte retry voor afgewezen IDs vereist nieuwe preview en bevestiging na succesvolle reconciliatie. Een SQLite-fout wist eerdere Gmail-acknowledgements niet. | Live partial-failure-tests, per-bericht verificatie na batchacceptatie en impact van volledige herlezing op grote mailboxen |
+| **TM-018, P1** | Add label behoudt INBOX en alle bestaande labels; Move to label vervangt gebruikerslabels en verwijdert INBOX. Preview legt dit uit. Gebruiker moet zelf een bestemming kiezen. Een al aangemaakt label wordt bij retry hergebruikt. | Echte Gmail-labeltests met systeemlabels en gedeeltelijke fouten |
+| **TM-021, P1** | Herverbindingsknop in scan en overzicht bij ontbrekende/verlopen Gmail-tokens; retry is uitgeschakeld als Gmail-herlezing faalt. | Browserproef tokenverval, reconnect en accountwissel |
+| **TM-032/033, P1** | Nieuwe regressietests voor suggestieselectie, labelbehoud, partiele/onzekere acties en cache-writefouten. | Echte Gmail- en browser-/multiuser-E2E, securityreview en schaalmetingen |
+
+**Nog niet afgerond / releaseblokkers:**
+- [ ] Test Google OAuth, scan en alle Gmail-acties met afzonderlijke testaccounts.
+- [ ] Verifieer privacy, tokenverversing en gebruikersisolatie met twee accounts, reconnect en logout.
+- [ ] Test Gmail-batchfouten met gemengde succes-/foutuitkomsten; bevestig per-berichtstatus waar nodig.
+- [ ] Controleer Add label en Move to label in echte Gmail, inclusief labelbehoud en foutgevallen.
+- [ ] Browser-E2E voor suggereren -> selecteren -> actiepreview -> bevestigen -> resultaat.
+- [ ] Grote mailboxen, rate limits en performance testen voor publieke release.
+
+**Bewust niet gedaan:** geen echte e-mails gewijzigd; main niet aangepast en de PR blijft draft.
 
 ## Legenda en werkafspraken
 
