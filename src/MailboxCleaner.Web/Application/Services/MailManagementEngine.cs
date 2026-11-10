@@ -9,10 +9,12 @@ public sealed class MailManagementEngine
     private readonly HashSet<string> _expandedSenders = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<MailItemDto>> _messagesBySender;
     private readonly string[] _suggestions;
+    private readonly HashSet<string> _knownMessageIds;
 
     public MailManagementEngine(IEnumerable<MailItemDto> messages)
     {
         _messages = messages.ToList();
+        _knownMessageIds = _messages.Select(message => message.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         _messagesBySender = _messages.GroupBy(message => message.SenderEmail, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
         _suggestions = _messages.SelectMany(message => new[] { message.SenderEmail, message.SenderName, message.Subject })
@@ -27,7 +29,7 @@ public sealed class MailManagementEngine
     public void SelectMessages(IEnumerable<string> ids)
     {
         foreach (var id in ids)
-            if (_messages.Any(message => message.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+            if (_knownMessageIds.Contains(id))
                 _selectedMessageIds.Add(id);
     }
     public IReadOnlyCollection<string> ExpandedSenders => _expandedSenders;
