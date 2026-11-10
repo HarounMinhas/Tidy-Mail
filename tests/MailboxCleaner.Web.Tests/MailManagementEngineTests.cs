@@ -23,6 +23,19 @@ public sealed class MailManagementEngineTests
     }
 
     [Fact]
+    public void SuggestedSelection_DoesNotChooseOrPerformAnAction()
+    {
+        var engine = new MailManagementEngine(CreateDummyMessages());
+        engine.SelectMessages(["m1", "m3", "not-found"]);
+        Assert.Equal(2, engine.SelectedMessageIds.Count);
+        // A suggestion supplies message IDs, never a destructive default action.
+        Assert.Equal("Inbox", engine.FilterMessages("", "", "", null).Single(m => m.Id == "m1").Folder);
+        Assert.Equal("Sent", engine.FilterMessages("", "", "", null).Single(m => m.Id == "m3").Folder);
+        engine.ClearSelection();
+        Assert.Empty(engine.SelectedMessageIds);
+    }
+
+    [Fact]
     public void SenderSelection_OnlySelectsVisibleMessagesWhenFiltered()
     {
         var engine = new MailManagementEngine(CreateDummyMessages());
