@@ -63,6 +63,9 @@ public sealed class GmailClient : IGmailClient
             } while (!string.IsNullOrWhiteSpace(listRequest.PageToken));
 
             var uniqueIds = allMessageIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            // Gmail METADATA format does not include MIME parts. Search message IDs
+            // separately to classify attachments without downloading message bodies.
+            var attachmentIds = await FetchAttachmentIdsAsync(service, cancellationToken);
             progress?.Report(new GmailScanProgress(pageNumber, uniqueIds.Count, 0, true));
             var scannedMessages = 0;
             var metadataItems = new ConcurrentBag<GmailMessageMetadata>();
@@ -87,7 +90,7 @@ public sealed class GmailClient : IGmailClient
                         var labels = message.LabelIds?.ToList() ?? new List<string>();
                         var listUnsubscribe = GetHeader(message, "List-Unsubscribe");
                         var precedence = GetHeader(message, "Precedence");
-                        metadataItems.Add(new GmailMessageMetadata(message.Id ?? messageId, fromHeader, subject, receivedAt, labels.Contains("UNREAD", StringComparer.OrdinalIgnoreCase) is false, ContainsAttachment(message.Payload), labels, message.ThreadId, message.SizeEstimate, listUnsubscribe, precedence, DateTimeOffset.UtcNow));
+                        metadataItems.Add(new GmailMessageMetadata(message.Id ?? messageId, fromHeader, subject, receivedAt, labels.Contains("UNREAD", StringComparer.OrdinalIgnoreCase) is false, attachmentIds.Contains(messageId), labels, message.ThreadId, message.SizeEstimate, listUnsubscribe, precedence, DateTimeOffset.UtcNow));
                         var scanned = Interlocked.Increment(ref scannedMessages);
                         if (scanned % 25 == 0 || scanned == uniqueIds.Count)
                             progress?.Report(new GmailScanProgress(pageNumber, uniqueIds.Count, scanned, true));
@@ -147,18 +150,18 @@ public sealed class GmailClient : IGmailClient
 
     public async Task<GmailActionResult> MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken)
     {
-        var metadataById = (await FetchMessageMetadataAsync(cancellationToken))
-            .GroupBy(message => message.Id, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        if (messageIds.Count == 0) return GmailActionResult.Empty;
         var labelsById = (await FetchLabelsAsync(cancellationToken))
             .GroupBy(label => label.Id, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
-        return await ExecuteBatchAsync(messageIds, (service, id) =>
+        // Only fetch labels for the messages selected by the user, not the whole mailbox.
+        return await ExecuteBatchAsync(messageIds, async (service, id) =>
         {
-            var removeLabels = ResolveLabelsToRemoveForMove(metadataById.TryGetValue(id, out var metadata) ? metadata.Labels : Array.Empty<string>(), labelId, labelsById);
+            var current = await FetchMetadataAsync(service, id, cancellationToken);
+            var removeLabels = ResolveLabelsToRemoveForMove(current.LabelIds ?? Array.Empty<string>(), labelId, labelsById);
             var request = new ModifyMessageRequest { AddLabelIds = [labelId], RemoveLabelIds = removeLabels.ToList() };
-            return service.Users.Messages.Modify(request, "me", id).ExecuteAsync(cancellationToken);
+            return await service.Users.Messages.Modify(request, "me", id).ExecuteAsync(cancellationToken);
         }, cancellationToken);
     }
 
@@ -313,5 +316,24 @@ public sealed class GmailClient : IGmailClient
         _metadataCache = null; _labelCache = null; _metadataCacheExpiresAt = default;
     }
 
-    private static bool ContainsAttachment(MessagePart? payload) => payload is not null && (!string.IsNullOrWhiteSpace(payload.Filename) || !string.IsNullOrWhiteSpace(payload.Body?.AttachmentId) || payload.Parts?.Any(ContainsAttachment) == true);
+    private static async Task<HashSet<string>> FetchAttachmentIdsAsync(GmailService service, CancellationToken cancellationToken)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var request = service.Users.Messages.List("me");
+        request.Q = "has:attachment";
+        request.IncludeSpamTrash = false;
+        request.MaxResults = PageSize;
+        do
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var response = await ExecuteWithRetryAsync(() => request.ExecuteAsync(cancellationToken), cancellationToken);
+            if (response.Messages is not null)
+            {
+                foreach (var message in response.Messages)
+                    if (!string.IsNullOrWhiteSpace(message.Id)) result.Add(message.Id);
+            }
+            request.PageToken = response.NextPageToken;
+        } while (!string.IsNullOrWhiteSpace(request.PageToken));
+        return result;
+    }
 }
