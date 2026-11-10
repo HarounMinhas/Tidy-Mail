@@ -23,9 +23,20 @@ public sealed class MailboxMetadataStore : IMailboxMetadataStore
 
     public Task SaveScanStateAsync(MailboxScanState state, CancellationToken cancellationToken)
     {
-        var cache = _cache.GetOrAdd(state.UserId, _ => new UserMailboxCache());
+        // Only the initial Discovering state may allocate a cache entry. A late
+        // completion/cancellation after logout must never resurrect a cleared cache.
+        if (!_cache.TryGetValue(state.UserId, out var cache))
+        {
+            if (state.Status != MailboxScanStatus.Discovering) return Task.CompletedTask;
+            cache = _cache.GetOrAdd(state.UserId, _ => new UserMailboxCache());
+        }
         lock (cache)
         {
+            if (!_cache.TryGetValue(state.UserId, out var current) || !ReferenceEquals(current, cache))
+                return Task.CompletedTask;
+            if (state.Status != MailboxScanStatus.Discovering &&
+                cache.State?.ScanId != state.ScanId)
+                return Task.CompletedTask;
             cache.State = state with { CachedMetadata = cache.Metadata.Values.OrderByDescending(m => m.ReceivedAt).ToList() };
         }
         return Task.CompletedTask;
@@ -68,10 +79,32 @@ public sealed class MailboxMetadataStore : IMailboxMetadataStore
         return Task.CompletedTask;
     }
 
+    /// <summary>Atomically replaces a complete scan only if the same live scan still owns the cache.</summary>
+    public Task<bool> TryCompleteScanAsync(MailboxScanState state, IEnumerable<MailboxMetadata> metadata, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_cache.TryGetValue(state.UserId, out var cache)) return Task.FromResult(false);
+        lock (cache)
+        {
+            if (!_cache.TryGetValue(state.UserId, out var live) || !ReferenceEquals(live, cache) ||
+                cache.State?.ScanId != state.ScanId)
+                return Task.FromResult(false);
+
+            var mapped = metadata.ToList();
+            cache.Metadata.Clear();
+            foreach (var item in mapped) cache.Metadata[item.MessageId] = item;
+            cache.State = state with { CachedMetadata = mapped };
+            return Task.FromResult(true);
+        }
+    }
+
     public Task<bool> HasMessageAsync(string userId, string messageId, CancellationToken cancellationToken)
     {
-        var exists = _cache.TryGetValue(userId, out var cache) && cache.Metadata.ContainsKey(messageId);
-        return Task.FromResult(exists);
+        if (!_cache.TryGetValue(userId, out var cache)) return Task.FromResult(false);
+        lock (cache)
+        {
+            return Task.FromResult(cache.Metadata.ContainsKey(messageId));
+        }
     }
 
     public Task ClearAsync(string userId, CancellationToken cancellationToken)
