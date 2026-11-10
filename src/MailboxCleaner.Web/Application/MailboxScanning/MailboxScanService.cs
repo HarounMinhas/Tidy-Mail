@@ -47,7 +47,7 @@ public sealed class MailboxScanService
                     ScannedMessages = update.ScannedMessages
                 });
             });
-            var metadata = await _gmailClient.FetchMessageMetadataAsync(gmailProgress, cancellationToken);
+            var metadata = await _gmailClient.FetchMessageMetadataAsync(true, gmailProgress, cancellationToken);
             var mapped = metadata.Select(Map).ToList();
             state = state with
             {
