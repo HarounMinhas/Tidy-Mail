@@ -163,6 +163,26 @@ public sealed class MailboxWorkflowServiceTests
     }
 
     [Fact]
+    public async Task AddLabel_DoesNotArchiveOrRemoveAnyPreviousLabels()
+    {
+        var store = new MailboxMetadataStore();
+        var now = DateTimeOffset.UtcNow;
+        await store.UpsertMetadataAsync("user",
+        [new MailboxMetadata("m1", "t1", "Sender", "sender@example.com", "example.com",
+            "Subject", now, false, ["INBOX", "UNREAD", "Label_Old"], false, 100, now)],
+            CancellationToken.None);
+
+        await store.UpdateAfterActionAsync("user", MailboxLocalAction.AddLabel,
+            ["m1"], "Label_New", CancellationToken.None);
+
+        var result = (await store.GetMetadataAsync("user", CancellationToken.None)).Single();
+        Assert.Contains("INBOX", result.Labels);
+        Assert.Contains("UNREAD", result.Labels);
+        Assert.Contains("Label_Old", result.Labels);
+        Assert.Contains("Label_New", result.Labels);
+    }
+
+    [Fact]
     public async Task MoveToLabel_RemovesPreviousUserLabelsButKeepsSystemLabels()
     {
         var store = new MailboxMetadataStore();
