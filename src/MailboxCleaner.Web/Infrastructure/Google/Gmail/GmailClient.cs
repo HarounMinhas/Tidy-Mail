@@ -28,9 +28,12 @@ public sealed class GmailClient : IGmailClient
     public Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(CancellationToken cancellationToken)
         => FetchMessageMetadataAsync(null, cancellationToken);
 
-    public async Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(IProgress<GmailScanProgress>? progress, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(IProgress<GmailScanProgress>? progress, CancellationToken cancellationToken)
+        => FetchMessageMetadataAsync(false, progress, cancellationToken);
+
+    public async Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(bool forceRefresh, IProgress<GmailScanProgress>? progress, CancellationToken cancellationToken)
     {
-        if (_metadataCache is not null && _metadataCacheExpiresAt > DateTimeOffset.UtcNow)
+        if (!forceRefresh && _metadataCache is not null && _metadataCacheExpiresAt > DateTimeOffset.UtcNow)
         {
             progress?.Report(new GmailScanProgress(0, _metadataCache.Count, _metadataCache.Count, true));
             return _metadataCache;
