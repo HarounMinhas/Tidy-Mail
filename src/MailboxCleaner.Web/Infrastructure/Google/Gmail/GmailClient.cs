@@ -1,3 +1,5 @@
+using Google;
+using System.Net;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Gmail.v1.Data;
 using System.Collections.Concurrent;
@@ -306,10 +308,31 @@ public sealed class GmailClient : IGmailClient
     {
         for (var attempt = 1; ; attempt++)
         {
-            try { return await operation(); }
-            catch when (attempt < 3 && !cancellationToken.IsCancellationRequested) { await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt), cancellationToken); }
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return await operation();
+            }
+            catch (Exception ex) when (attempt < 4 && !cancellationToken.IsCancellationRequested && IsTransient(ex))
+            {
+                // Exponential backoff with jitter for throttling and transient API failures.
+                var delay = 250 * (1 << (attempt - 1)) + Random.Shared.Next(0, 200);
+                await Task.Delay(TimeSpan.FromMilliseconds(delay), cancellationToken);
+            }
         }
     }
+
+    private static bool IsTransient(Exception exception) => exception switch
+    {
+        GoogleApiException api => api.HttpStatusCode == HttpStatusCode.TooManyRequests
+            || api.HttpStatusCode == HttpStatusCode.InternalServerError
+            || api.HttpStatusCode == HttpStatusCode.BadGateway
+            || api.HttpStatusCode == HttpStatusCode.ServiceUnavailable
+            || api.HttpStatusCode == HttpStatusCode.GatewayTimeout,
+        HttpRequestException => true,
+        TaskCanceledException => true,
+        _ => false
+    };
 
     private void InvalidateCache()
     {
