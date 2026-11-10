@@ -14,6 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<GoogleOAuthOptions>(builder.Configuration.GetSection("Google"));
 
 builder.Services.AddDataProtection();
+builder.Services.AddMemoryCache();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
