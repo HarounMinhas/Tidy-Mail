@@ -1,6 +1,7 @@
 @using MailboxCleaner.Web.Application.MailboxScanning
 @inject MailboxScanService ScanService
 @inject NavigationManager Navigation
+@implements IDisposable
 
 <div class="card border-primary">
     <div class="card-body">
@@ -32,13 +33,33 @@
 
     private async Task StartScan()
     {
+        if (scanRunning) return;
         cancellation = new CancellationTokenSource();
         scanRunning = true;
-        var progress = new Progress<MailboxScanState>(state => { scanState = state; InvokeAsync(StateHasChanged); });
-        scanState = await ScanService.ScanAsync(UserId, progress, cancellation.Token);
-        scanRunning = false;
+        scanState = new MailboxScanState { UserId = UserId };
+        try
+        {
+            var progress = new Progress<MailboxScanState>(state =>
+            {
+                if (!scanRunning || state.ScanId != scanState.ScanId && scanState.Status == MailboxScanStatus.Completed)
+                    return;
+                scanState = state;
+                _ = InvokeAsync(StateHasChanged);
+            });
+            scanState = await ScanService.ScanAsync(UserId, progress, cancellation.Token);
+        }
+        finally
+        {
+            scanRunning = false;
+            cancellation?.Dispose();
+            cancellation = null;
+        }
     }
 
     private void CancelScan() => cancellation?.Cancel();
-    private void ContinueToDashboard() => Navigation.NavigateTo("/overview");
+    private void ContinueToDashboard() => Navigation.NavigateTo("/overview", forceLoad: true);
+    public void Dispose()
+    {
+        cancellation?.Cancel();
+    }
 }
