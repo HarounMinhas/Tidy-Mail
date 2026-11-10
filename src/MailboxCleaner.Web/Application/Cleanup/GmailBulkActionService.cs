@@ -8,17 +8,21 @@ public sealed class GmailBulkActionService
 {
     private readonly IGmailClient _gmailClient;
     private readonly IMailboxMetadataStore _store;
+    private readonly MailboxOperationCoordinator _coordinator;
 
-    public GmailBulkActionService(IGmailClient gmailClient, IMailboxMetadataStore store)
+    public GmailBulkActionService(IGmailClient gmailClient, IMailboxMetadataStore store,
+        MailboxOperationCoordinator? coordinator = null)
     {
         _gmailClient = gmailClient;
         _store = store;
+        _coordinator = coordinator ?? new MailboxOperationCoordinator();
     }
 
     public async Task<GmailBulkActionResult> ApplyAsync(string userId, CleanupBulkAction action, IReadOnlyCollection<string> messageIds, string? labelId, string? newLabelName, CancellationToken cancellationToken)
     {
         var ids = messageIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (ids.Count == 0) return GmailBulkActionResult.Empty;
+        using var operation = await _coordinator.EnterAsync(userId, cancellationToken);
 
         var targetLabelId = labelId;
         try
@@ -48,7 +52,7 @@ public sealed class GmailBulkActionService
                     await _store.UpdateAfterActionAsync(userId, MailboxLocalAction.MoveToLabel, moveResult.SucceededMessageIds, targetLabelId, cancellationToken);
                     return ToBulkResult(ids.Count, moveResult);
             }
-            return GmailBulkActionResult.Success(ids);
+            throw new ArgumentOutOfRangeException(nameof(action), action, "Unsupported Gmail bulk action.");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
