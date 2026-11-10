@@ -14,7 +14,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<GoogleOAuthOptions>(builder.Configuration.GetSection("Google"));
 
 builder.Services.AddDataProtection();
-builder.Services.AddMemoryCache();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -39,7 +38,7 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddControllers();
 
-builder.Services.AddScoped<ITokenStore, SessionTokenStore>();
+builder.Services.AddScoped<ITokenStore, SqliteTokenStore>();
 builder.Services.AddScoped<IGoogleOAuthService, GoogleOAuthService>();
 builder.Services.AddScoped<IGmailCredentialFactory, GoogleUserCredentialFactory>();
 builder.Services.AddScoped<IGmailClient, GmailClient>();
