@@ -301,6 +301,7 @@ public sealed class GmailClient : IGmailClient
         var ids = messageIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var succeeded = new List<string>();
         var failed = new List<string>();
+        var unknown = new List<string>();
         var errors = new List<string>();
         try
         {
@@ -322,12 +323,13 @@ public sealed class GmailClient : IGmailClient
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    failed.AddRange(chunkIds);
+                    if (IsUncertainWriteOutcome(ex)) unknown.AddRange(chunkIds);
+                    else failed.AddRange(chunkIds);
                     errors.Add(ex.Message);
                 }
             }
 
-            return new GmailActionResult(ids.Count, succeeded, failed, errors);
+            return new GmailActionResult(ids.Count, succeeded, failed, errors, unknown);
         }
         finally
         {
@@ -355,7 +357,8 @@ public sealed class GmailClient : IGmailClient
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    failed.Add(messageId);
+                    if (IsUncertainWriteOutcome(ex)) unknown.Add(messageId);
+                    else failed.Add(messageId);
                     errors.Add($"{messageId}: {ex.Message}");
                 }
             }
@@ -433,6 +436,14 @@ public sealed class GmailClient : IGmailClient
             }
         }
     }
+
+    private static bool IsUncertainWriteOutcome(Exception exception) => exception switch
+    {
+        GoogleApiException api => (int)api.HttpStatusCode == 429 || (int)api.HttpStatusCode >= 500,
+        HttpRequestException => true,
+        TaskCanceledException => true,
+        _ => false
+    };
 
     private static bool IsTransient(Exception exception) => exception switch
     {
