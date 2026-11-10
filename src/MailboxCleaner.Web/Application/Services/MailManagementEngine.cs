@@ -26,6 +26,11 @@ public sealed class MailManagementEngine
 
     public IReadOnlyCollection<string> SelectedMessageIds => _selectedMessageIds;
     public void ClearSelection() => _selectedMessageIds.Clear();
+    public int CountSelectedOutside(IEnumerable<string> visibleMessageIds)
+    {
+        var visible = visibleMessageIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return _selectedMessageIds.Count(id => !visible.Contains(id));
+    }
     public void SelectMessages(IEnumerable<string> ids)
     {
         foreach (var id in ids)
