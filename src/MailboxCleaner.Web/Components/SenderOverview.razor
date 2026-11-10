@@ -117,7 +117,12 @@
 }
 @if (!string.IsNullOrWhiteSpace(errorMessage))
 {
-    <div class="alert alert-danger">@errorMessage</div>
+    <div class="alert alert-danger">@errorMessage
+        @if (NeedsGmailReconnect)
+        {
+            <div class="mt-2"><a href="/auth/login" class="btn btn-sm btn-outline-primary">Reconnect Google account</a></div>
+        }
+    </div>
 }
 @if (lastActionResult is not null)
 {
@@ -135,7 +140,7 @@
         }
         @if (lastActionResult.TotalFailed > 0)
         {
-            <button type="button" class="btn btn-sm btn-outline-dark mt-2" disabled="@actionInProgress" @onclick="ReviewRejectedMessages">
+            <button type="button" class="btn btn-sm btn-outline-dark mt-2" disabled="@(actionInProgress || !canRetryRejected)" @onclick="ReviewRejectedMessages">
                 Select @lastActionResult.TotalFailed rejected messages for a new preview
             </button>
         }
@@ -344,6 +349,10 @@ else if (!isLoading)
     private string errorMessage = string.Empty;
     private GmailBulkActionResult? lastActionResult;
     private MailBulkAction? lastActionKind;
+    private bool canRetryRejected;
+    private bool NeedsGmailReconnect => errorMessage.Contains("sign in again", StringComparison.OrdinalIgnoreCase)
+        || errorMessage.Contains("token missing", StringComparison.OrdinalIgnoreCase)
+        || errorMessage.Contains("token expired", StringComparison.OrdinalIgnoreCase);
     private string sortField = "Count";
     private string sortDirection = "Desc";
 
@@ -386,7 +395,7 @@ else if (!isLoading)
         }
     }
 
-    private async Task RefreshAsync(bool fromGmail = false)
+    private async Task<bool> RefreshAsync(bool fromGmail = false)
     {
         isLoading = true;
         StateHasChanged();
@@ -410,10 +419,12 @@ else if (!isLoading)
                 .ToList();
 
             ApplyFilters();
+            return true;
         }
         catch (Exception ex)
         {
             errorMessage = $"Unable to load mailbox metadata. {ex.Message}";
+            return false;
         }
         finally
         {
@@ -528,6 +539,7 @@ else if (!isLoading)
             errorMessage = string.Empty;
             successMessage = string.Empty;
             lastActionResult = null;
+            canRetryRejected = false;
 
             var result = await OverviewService.ApplyActionWithResultAsync(action, messageIds,
                 selectedDestinationLabelId, newFolderName, CancellationToken.None);
@@ -544,9 +556,12 @@ else if (!isLoading)
             {
                 errorMessage = "Gmail returned rejected or uncertain results. The mailbox is being reloaded; " +
                     "only definitively rejected messages can be offered for retry.";
-                await RefreshAsync(fromGmail: true);
-                if (result.TotalFailed > 0)
+                var refreshed = await RefreshAsync(fromGmail: true);
+                canRetryRejected = refreshed && result.TotalFailed > 0;
+                if (canRetryRejected)
                     engine.SelectMessages(result.FailedMessageIds);
+                else if (!refreshed)
+                    errorMessage = "Gmail reconciliation failed. No retry is available until the mailbox has been refreshed successfully.";
             }
             else
             {
@@ -570,7 +585,7 @@ else if (!isLoading)
 
     private void ReviewRejectedMessages()
     {
-        if (actionInProgress || lastActionResult is null || lastActionKind is null ||
+        if (actionInProgress || !canRetryRejected || lastActionResult is null || lastActionKind is null ||
             lastActionResult.TotalFailed == 0) return;
 
         engine.ClearSelection();
@@ -582,12 +597,12 @@ else if (!isLoading)
         }
 
         var action = lastActionKind.Value;
-        OpenActionPane(action); // Always require a fresh preview and confirmation.
         if (!string.IsNullOrWhiteSpace(lastActionResult.TargetLabelId))
         {
             selectedDestinationLabelId = lastActionResult.TargetLabelId;
             newFolderName = string.Empty; // do not recreate a new Gmail label on retry
         }
+        OpenActionPane(action); // Always require a fresh preview and confirmation.
     }
 
     private void CancelAction()
