@@ -240,6 +240,7 @@ else if (!isLoading)
     private ActionPreview? actionPreview;
     private List<MailItemDto> previewMessages = new();
     [Parameter] public EventCallback OnMailboxChanged { get; set; }
+    [Parameter] public IReadOnlyCollection<string> InitialSelectedMessageIds { get; set; } = Array.Empty<string>();
     private string selectedDestinationLabelId = "INBOX";
     private string newFolderName = string.Empty;
     private List<MailboxCleaner.Web.Infrastructure.Google.GmailLabel> existingLabels = new();
@@ -269,6 +270,13 @@ else if (!isLoading)
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
+        if (InitialSelectedMessageIds.Count > 0)
+        {
+            var availableIds = allMessages.Select(message => message.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var messageId in InitialSelectedMessageIds)
+                if (availableIds.Contains(messageId)) engine.ToggleMessageSelection(messageId, true);
+            if (engine.SelectedMessageIds.Count > 0) OpenActionPane(MailBulkAction.Archive);
+        }
     }
 
     private async Task RefreshAsync()
