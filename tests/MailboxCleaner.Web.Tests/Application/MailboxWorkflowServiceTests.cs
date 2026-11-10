@@ -51,6 +51,30 @@ public sealed class MailboxWorkflowServiceTests
     }
 
     [Fact]
+    public async Task IncrementalScan_MergesHistoryChangesWithoutFullGmailFetch()
+    {
+        var store = new MailboxMetadataStore();
+        var first = new MailboxScanState
+        {
+            UserId = "user", Status = MailboxScanStatus.Discovering, LastHistoryId = "100"
+        };
+        await store.SaveScanStateAsync(first, CancellationToken.None);
+        await store.ReplaceMetadataAsync("user", CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None);
+        await store.SaveScanStateAsync(first with { Status = MailboxScanStatus.Completed }, CancellationToken.None);
+
+        var gmail = new HistoryGmailClient();
+        var result = await new MailboxScanService(gmail, store).ScanAsync("user", null, CancellationToken.None);
+        var metadata = await store.GetMetadataAsync("user", CancellationToken.None);
+
+        Assert.Equal(MailboxScanStatus.Completed, result.Status);
+        Assert.Equal("110", result.LastHistoryId);
+        Assert.Equal(4, metadata.Count);
+        Assert.DoesNotContain(metadata, message => message.MessageId == "m1");
+        Assert.Contains(metadata, message => message.MessageId == "m5");
+        Assert.False(gmail.FullFetchCalled);
+    }
+
+    [Fact]
     public async Task SqliteStore_PersistsMetadataAndRejectsClearedScan()
     {
         var path = Path.Combine(Path.GetTempPath(), $"tidy-mail-{Guid.NewGuid():N}.db");
@@ -248,6 +272,36 @@ public sealed class MailboxWorkflowServiceTests
         new("m3", "t2", "Alerts", "noreply@service.com", "service.com", "Alert", now.AddYears(-2), false, ["INBOX", "UNREAD"], false, 100, now),
         new("m4", "t3", "Human", "person@corp.com", "corp.com", "Meeting", now, false, ["INBOX", "UNREAD"], false, 100, now)
     ];
+
+    private sealed class HistoryGmailClient : IGmailClient
+    {
+        public bool FullFetchCalled { get; private set; }
+        public Task<IReadOnlyList<string>> FetchFromHeadersAsync(CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        public Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(CancellationToken cancellationToken)
+        {
+            FullFetchCalled = true;
+            return Task.FromResult<IReadOnlyList<GmailMessageMetadata>>(Array.Empty<GmailMessageMetadata>());
+        }
+        public Task<GmailHistoryDelta?> FetchHistoryDeltaAsync(string startHistoryId, CancellationToken cancellationToken)
+            => Task.FromResult<GmailHistoryDelta?>(new GmailHistoryDelta("110",
+            [new GmailMessageMetadata("m5", "New <new@example.com>", "Hello", DateTimeOffset.UtcNow,
+                true, false, ["INBOX"])], ["m1"]));
+        public Task<IReadOnlyList<GmailLabel>> FetchLabelsAsync(CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<GmailLabel>>(Array.Empty<GmailLabel>());
+        public Task<GmailActionResult> TrashMessagesAsync(IReadOnlyCollection<string> ids, CancellationToken token)
+            => Task.FromResult(GmailActionResult.Success(ids));
+        public Task<GmailActionResult> ArchiveMessagesAsync(IReadOnlyCollection<string> ids, CancellationToken token)
+            => Task.FromResult(GmailActionResult.Success(ids));
+        public Task<GmailActionResult> MarkMessagesReadAsync(IReadOnlyCollection<string> ids, CancellationToken token)
+            => Task.FromResult(GmailActionResult.Success(ids));
+        public Task<GmailActionResult> MarkMessagesUnreadAsync(IReadOnlyCollection<string> ids, CancellationToken token)
+            => Task.FromResult(GmailActionResult.Success(ids));
+        public Task<GmailActionResult> MoveMessagesToLabelAsync(IReadOnlyCollection<string> ids, string label, CancellationToken token)
+            => Task.FromResult(GmailActionResult.Success(ids));
+        public Task<GmailLabel> CreateLabelAsync(string label, CancellationToken token)
+            => Task.FromResult(new GmailLabel(label, label, false));
+    }
 
     private sealed class FailingMetadataGmailClient : IGmailClient
     {
