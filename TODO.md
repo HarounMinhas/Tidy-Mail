@@ -77,17 +77,17 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 | --- | --- | --- |
 | Inloggen / uitloggen met Google OAuth | Ja | Correcte claimvalidatie, circuit- en sessiegedrag, echte login/logout-test |
 | Gmail metadata scannen, zonder berichtinhoud | Ja | Werkende UI, echte progressie, herstel na fout, quota-/performancetest |
-| Lokale scan-cache per gebruiker | Ja, in geheugen | Veilige identiteitskoppeling, gelijktijdigheid, duurzaamheid en cache-invalidering |
+| Lokale scan-cache per gebruiker | Ja, SQLite op werkbranch | Multiuser-E2E, back-ups en multi-instance aanpak |
 | Dashboardstatistieken | Ja | Herberekenen na Gmail-acties en rescan; correctheid bij randgevallen |
 | Afzender- en domeingroepering | Ja | Controle op grote mailboxen en correcte weergave |
 | Zoeken, sorteren en basisfilters | Ja | Veilige selectie onder filters, extra bestaande servicefilters in UI beschikbaar maken |
-| Nieuwsbrief-/noreply-/cleanup-suggesties | Ja, gegenereerd | Suggesties klikbaar maken, met exact geselecteerde bericht-ID's en preview |
+| Nieuwsbrief-/noreply-/cleanup-suggesties | Ja, op werkbranch review-selectie zonder standaard actie | Browser-E2E blijft nodig |
 | Trash, archive, read/unread, move/create label | Ja | End-to-end Gmail-tests, echte resultaten, herstel na partiële fouten |
-| Bulkactiepreview met risico en voorbeeldberichten | Service aanwezig | Daadwerkelijk verbinden met bevestigingsscherm |
+| Bulkactiepreview met risico en voorbeeldberichten | In UI op werkbranch aanwezig | Browser-/Gmail-validatie en partial-result UX-test |
 | Bijlagenherkenning | Logica aanwezig | Werking corrigeren/valideren met Gmail metadata-API |
 | Automatische tests en benchmarks | Ja, deels | CI, browser-/auth-/integratietests en echte schaalmetingen |
-| Incremental Gmail sync | Nee | Gmail History API implementeren |
-| Blijvende cache over herstart / meerdere apparaten | Nee | Database, migraties en retentiebeleid |
+| Incremental Gmail sync | Ja op werkbranch | Live Gmail History API en verlopen cursor testen |
+| Blijvende cache over herstart / meerdere apparaten | SQLite op werkbranch | Back-ups, retentie en multi-instance deployment nog vereist |
 | Productiedeployment | Niet aangetoond | Secrets, Google OAuth-configuratie/verificatie, monitoring en smoke tests |
 
 **Uitgangspunt:** bouw niet opnieuw wat al bestaat; herstel eerst de integratie van de bestaande services en valideer de complete gebruikersflow.
@@ -127,7 +127,7 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 - [x] Zorg dat de UI altijd duidelijk toont hoeveel berichten werkelijk geselecteerd zijn (inclusief eventuele verborgen selectie).
 - [ ] Maak `Select visible`, `Select all matching` en `Clear selection` met expliciete semantiek; wis/verifieer selectie bij rescan of accountwissel.
 - [ ] Hergebruik `BulkActionPreviewService` in de echte UI: actie, exact aantal, belangrijkste afzenders, voorbeeldberichten en waarschuwing bij Trash.
-- [ ] Voorkom dat selectie verandert tussen preview en uitvoering zonder nieuwe bevestiging.
+- [x] Voorkom dat selectie verandert tussen preview en uitvoering zonder nieuwe bevestiging. De selectie-ID-set wordt voor uitvoering gecontroleerd en een gewijzigde selectie sluit de preview.
 - **Acceptatie:** filter 'Unread' + selecteer afzender + Trash kan nooit onopgemerkt gelezen berichten meenemen.
 - **Bestanden:** `Application/Services/MailManagementEngine.cs`, `Components/SenderOverview.razor`, `Application/Cleanup/BulkActionModels.cs`.
 
@@ -164,8 +164,8 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 - [ ] Maak onderscheid tussen een **door Gmail geaccepteerde batch** en per bericht daadwerkelijk geverifieerde toestand; `batchModify` levert geen individueel succesoverzicht.
 - [ ] Verifieer of herlees geselecteerde berichtmetadata na fouten, time-outs of onduidelijke resultaten.
 - [ ] Toon `geslaagd`, `mislukt` en `onbekend/te controleren` eerlijk; bied veilig opnieuw proberen voor mislukte ID's.
-- [ ] Corrigeer foutafhandeling waarbij `SenderOverview.razor` zegt Gmail te verversen terwijl `SenderOverviewService` mogelijk alleen lokale metadata herleest.
-- [ ] Laat een onbekende actie in `GmailBulkActionService.ApplyAsync` nooit stilzwijgend `Success` opleveren.
+- [x] Corrigeer foutafhandeling waarbij `SenderOverview.razor` zegt Gmail te verversen terwijl `SenderOverviewService` mogelijk alleen lokale metadata herleest. De service heeft nu expliciete Gmail-reconciliatie.
+- [x] Laat een onbekende actie in `GmailBulkActionService.ApplyAsync` nooit stilzwijgend `Success` opleveren.
 - **Acceptatie:** na gedeeltelijke storing stemt de lokale weergave overeen met Gmail of is zichtbaar gemarkeerd dat verificatie nodig is.
 - **Bestanden:** `Infrastructure/Google/Gmail/GmailClient.cs`, `Application/Cleanup/GmailBulkActionService.cs`, `Application/Services/SenderOverviewService.cs`, `Components/SenderOverview.razor`.
 
@@ -186,7 +186,7 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 - [ ] **TM-015 [P1] Dashboard verversen na actie:** vernieuw statistieken, suggesties en afzenderlijst vanuit dezelfde actuele cache-snapshot na archiveren/verplaatsen/prullenbak/lezen.
 - [ ] **TM-016 [P1] Labelnamen tonen bij cachegebruik:** laad of bewaar de Gmail label-ID-naar-naam mapping, ook als berichten uit de cache komen; voorkom dat `Label_...` de zichtbare mapnaam is.
 - [ ] **TM-017 [P1] Juiste mapstatus:** toon `Trash`/`Spam`/`Sent`/`Draft` correct, ook wanneer een bericht extra gebruikerslabels heeft; herbekijk `ResolvePrimaryFolder`.
-- [ ] **TM-018 [P1] 'Move' versus 'add label' definiëren:** documenteer en test wanneer `INBOX` en bestaande gebruikerslabels verwijderd worden. Vermijd onverwacht verlies van labels; maak de semantiek zichtbaar in de preview.
+- [ ] **TM-018 [P1] 'Move' versus 'add label' definiëren:** de werkbranch heeft nu twee gescheiden acties, met previewuitleg, verplichte expliciete labelkeuze en unit tests voor labelbehoud. Open: echte Gmail-integratie-/browserchecks en complexe labelgevallen.
 - [ ] **TM-019 [P2] Alle bestaande filtermogelijkheden in UI:** voeg de al ondersteunde leeftijdsfilters, nieuwsbrief-, notificatie- en expliciete Gmail-label-filters toe; combineerbaar met sender/domain/subject/read/attachment.
 - [ ] **TM-020 [P1] Suggesties veilig en correct uitvoerbaar maken:** klik op cleanup-suggestie -> exacte berichtselectie -> preview -> bevestiging -> Gmail-actie -> dashboardupdate. **Open niet standaard Archive voor suggesties met actie `Preview selected`** (zoals oude ongelezen mails): `SenderOverview.razor` roept nu bij `InitialSelectedMessageIds` onvoorwaardelijk `OpenActionPane(MailBulkAction.Archive)` aan. Toon eerst alleen de selectie of map expliciet de voorgestelde actie, met aparte gebruikerskeuze. Geen automatische mutaties of deletions.
 - [ ] **TM-021 [P2] UX-afwerking:** duidelijke lege mailbox, verlopen token, foutmelding, retry, accountwissel, laden en gedeeltelijke successen; keyboardtoegankelijkheid, mobiel/responsief gedrag en heldere waarschuwingslabels.
@@ -198,7 +198,7 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 - [ ] **TM-023 [P1] Alle zes workflows end-to-end:** Trash, Archive, Mark read, Mark unread, Move to existing label, Create label + move met een afzonderlijk Gmail-testaccount testen.
 - [ ] **TM-024 [P1] Efficiënt 'Move':** `MoveMessagesToLabelAsync` mag niet onnodig de volledige mailbox ophalen voor een selectie van enkele berichten; haal benodigde labels veilig uit de cache of vraag geselecteerde ID's gericht op.
 - [ ] **TM-025 [P1] Beschermde berichten:** standaard waarschuwing/expliciete bevestiging voor `STARRED`/`IMPORTANT` en recente/ongeopende berichten; geen 'permanent delete' invoeren.
-- [ ] **TM-026 [P2] Bulkactie-UX:** vergrendel dubbelklikken, toon werkelijke voortgang waar mogelijk, laat Cancel geen reeds gestarte Gmail-mutatie verhullen en bied gerichte retry aan bij fouten.
+- [ ] **TM-026 [P2] Bulkactie-UX:** dubbelklikbescherming, Cancel-blokkering tijdens mutatie en gerichte retry na Gmail-herlezing zijn geimplementeerd. Open: werkelijke voortgang bij grote batches, live partial-failure-tests en browser-E2E.
 - **Acceptatie:** alle acties blijven ook na verversen in Gmail zichtbaar; nul selecties doen niets; gedeeltelijke fouten zijn duidelijk en veroorzaken geen stille inconsistentie.
 
 ## 4. Fase C - Duurzaamheid en synchronisatie
