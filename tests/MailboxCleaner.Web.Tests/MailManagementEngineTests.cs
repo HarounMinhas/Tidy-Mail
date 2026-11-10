@@ -36,6 +36,18 @@ public sealed class MailManagementEngineTests
     }
 
     [Fact]
+    public void FilterChange_ReportsSelectionOutsideTheVisibleSet()
+    {
+        var engine = new MailManagementEngine(CreateDummyMessages());
+        engine.SelectMessages(["m1", "m2"]);
+        var visibleUnread = engine.FilterMessages("", "Unread", "", null)
+            .Select(message => message.Id).ToList();
+
+        Assert.Equal(1, engine.CountSelectedOutside(visibleUnread));
+        Assert.Equal(0, engine.CountSelectedOutside(["m1", "m2"]));
+    }
+
+    [Fact]
     public void SenderSelection_OnlySelectsVisibleMessagesWhenFiltered()
     {
         var engine = new MailManagementEngine(CreateDummyMessages());
