@@ -49,6 +49,24 @@
                         <option value="false">No attachment</option>
                     </select>
                 </div>
+                <div class="col-md-2">
+                    <label class="form-label">Age</label>
+                    <select class="form-select" @bind="AgeFilter">
+                        <option value="">Any age</option>
+                        <option value="6m">Older than 6 months</option>
+                        <option value="1y">Older than 1 year</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Gmail label</label>
+                    <select class="form-select" @bind="GmailLabelFilter">
+                        <option value="">All labels</option>
+                        @foreach (var label in existingLabels)
+                        {
+                            <option value="@label.Id">@label.Name</option>
+                        }
+                    </select>
+                </div>
                 <div class="col-md-6">
                     <label class="form-label">Autocomplete sender/keyword</label>
                     <input class="form-control" list="message-query-options" @bind="MessageQuery" @bind:event="oninput" placeholder="Search sender or keyword" />
@@ -63,6 +81,18 @@
                     <div class="form-check mt-4">
                         <input class="form-check-input" type="checkbox" id="noreplyOnly" @bind="NoreplyOnly" />
                         <label class="form-check-label" for="noreplyOnly">Noreply only</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" id="newsletterOnly" @bind="NewsletterOnly" />
+                        <label class="form-check-label" for="newsletterOnly">Likely newsletters only</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" id="notificationOnly" @bind="NotificationOnly" />
+                        <label class="form-check-label" for="notificationOnly">Notifications only</label>
                     </div>
                 </div>
             </div>
@@ -232,6 +262,10 @@ else if (!isLoading)
     private string messageStatusFilter = string.Empty;
     private string folderFilter = string.Empty;
     private string attachmentFilterValue = string.Empty;
+    private string ageFilter = string.Empty;
+    private string gmailLabelFilter = string.Empty;
+    private bool newsletterOnly;
+    private bool notificationOnly;
 
     private MailManagementEngine engine = new(Array.Empty<MailItemDto>());
 
@@ -333,9 +367,11 @@ else if (!isLoading)
             senderResults = senderResults.Where(sender => sender.Email.Contains("noreply", StringComparison.OrdinalIgnoreCase));
         }
 
-        filteredSenders = SortSenders(senderResults).ToList();
-
-        filteredMessages = engine.FilterMessages(messageQuery, messageStatusFilter, folderFilter, ParseAttachmentFilter());
+        filteredMessages = engine.FilterMessages(messageQuery, messageStatusFilter, folderFilter,
+            ParseAttachmentFilter(), ageFilter, newsletterOnly, notificationOnly, gmailLabelFilter);
+        var visibleSenderEmails = filteredMessages.Select(message => message.SenderEmail)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        filteredSenders = SortSenders(senderResults.Where(sender => visibleSenderEmails.Contains(sender.Email))).ToList();
         querySuggestions = engine.AutocompleteSuggestions(messageQuery).ToList();
     }
 
@@ -532,5 +568,29 @@ else if (!isLoading)
             attachmentFilterValue = value;
             ApplyFilters();
         }
+    }
+
+    private string AgeFilter
+    {
+        get => ageFilter;
+        set { ageFilter = value; ApplyFilters(); }
+    }
+
+    private string GmailLabelFilter
+    {
+        get => gmailLabelFilter;
+        set { gmailLabelFilter = value; ApplyFilters(); }
+    }
+
+    private bool NewsletterOnly
+    {
+        get => newsletterOnly;
+        set { newsletterOnly = value; ApplyFilters(); }
+    }
+
+    private bool NotificationOnly
+    {
+        get => notificationOnly;
+        set { notificationOnly = value; ApplyFilters(); }
     }
 }
