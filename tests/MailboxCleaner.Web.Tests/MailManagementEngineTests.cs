@@ -23,6 +23,48 @@ public sealed class MailManagementEngineTests
     }
 
     [Fact]
+    public void SuggestedSelection_DoesNotChooseOrPerformAnAction()
+    {
+        var engine = new MailManagementEngine(CreateDummyMessages());
+        engine.SelectMessages(["m1", "m3", "not-found"]);
+        Assert.Equal(2, engine.SelectedMessageIds.Count);
+        // A suggestion supplies message IDs, never a destructive default action.
+        Assert.Equal("Inbox", engine.FilterMessages("", "", "", null).Single(m => m.Id == "m1").Folder);
+        Assert.Equal("Sent", engine.FilterMessages("", "", "", null).Single(m => m.Id == "m3").Folder);
+        engine.ClearSelection();
+        Assert.Empty(engine.SelectedMessageIds);
+    }
+
+    [Fact]
+    public void FilterChange_ReportsSelectionOutsideTheVisibleSet()
+    {
+        var engine = new MailManagementEngine(CreateDummyMessages());
+        engine.SelectMessages(["m1", "m2"]);
+        var visibleUnread = engine.FilterMessages("", "Unread", "", null)
+            .Select(message => message.Id).ToList();
+
+        Assert.Equal(1, engine.CountSelectedOutside(visibleUnread));
+        Assert.Equal(0, engine.CountSelectedOutside(["m1", "m2"]));
+    }
+
+    [Fact]
+    public void SenderSelection_OnlySelectsVisibleMessagesWhenFiltered()
+    {
+        var engine = new MailManagementEngine(CreateDummyMessages());
+        var visible = engine.FilterMessages("", "Unread", "", null)
+            .Where(m => m.SenderEmail == "alpha@example.com")
+            .Select(m => m.Id).ToList();
+
+        engine.ToggleSenderSelection("alpha@example.com", true, visible);
+
+        Assert.Contains("m1", engine.SelectedMessageIds);
+        Assert.DoesNotContain("m2", engine.SelectedMessageIds);
+        Assert.True(engine.IsSenderFullySelected("alpha@example.com", visible));
+        Assert.False(engine.IsSenderFullySelected("alpha@example.com"));
+        Assert.Single(engine.PreviewAction(MailBulkAction.Delete).MessageIds);
+    }
+
+    [Fact]
     public void Filters_WorkForUnreadReadFolderAttachmentAndKeyword()
     {
         var engine = new MailManagementEngine(CreateDummyMessages());
@@ -38,6 +80,25 @@ public sealed class MailManagementEngineTests
 
         var keyword = engine.FilterMessages("invoice", "", "", null);
         Assert.All(keyword, message => Assert.Contains("invoice", message.Subject, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ExtendedFilters_UseAgeClassificationAndGmailLabelIds()
+    {
+        var messages = CreateDummyMessages().ToList();
+        messages.Add(new MailItemDto("m6", "news@example.com", "News", "example.com",
+            "Weekly digest", new DateTimeOffset(2023, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            true, false, true, "News", true, false, ["Label_News"]));
+        var engine = new MailManagementEngine(messages);
+
+        var now = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
+        var result = engine.FilterMessages("", "", "", null,
+            "1y", newsletterOnly: true, labelId: "Label_News", clock: now);
+
+        Assert.Single(result);
+        Assert.Equal("m6", result.Single().Id);
+        Assert.Empty(engine.FilterMessages("", "", "", null,
+            notificationOnly: true, labelId: "Label_News", clock: now));
     }
 
     [Fact]

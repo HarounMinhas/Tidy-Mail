@@ -7,6 +7,7 @@ public interface IMailboxMetadataStore
     Task<IReadOnlyList<MailboxMetadata>> GetMetadataAsync(string userId, CancellationToken cancellationToken);
     Task UpsertMetadataAsync(string userId, IEnumerable<MailboxMetadata> metadata, CancellationToken cancellationToken);
     Task ReplaceMetadataAsync(string userId, IEnumerable<MailboxMetadata> metadata, CancellationToken cancellationToken);
+    Task<bool> TryCompleteScanAsync(MailboxScanState state, IEnumerable<MailboxMetadata> metadata, CancellationToken cancellationToken);
     Task<bool> HasMessageAsync(string userId, string messageId, CancellationToken cancellationToken);
     Task ClearAsync(string userId, CancellationToken cancellationToken);
     Task UpdateAfterActionAsync(string userId, MailboxLocalAction action, IReadOnlyCollection<string> successfulMessageIds, string? labelId, CancellationToken cancellationToken);
@@ -19,5 +20,6 @@ public enum MailboxLocalAction
     Archive,
     MarkRead,
     MarkUnread,
-    MoveToLabel
+    MoveToLabel,
+    AddLabel
 }

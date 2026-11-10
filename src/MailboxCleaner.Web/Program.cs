@@ -8,12 +8,23 @@ using MailboxCleaner.Web.Infrastructure.Security;
 using MailboxCleaner.Web.Infrastructure.Google.Gmail;
 using MailboxCleaner.Web.Components;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<GoogleOAuthOptions>(builder.Configuration.GetSection("Google"));
 
-builder.Services.AddDataProtection();
+var keyDirectory = builder.Configuration["Mailbox:DataProtectionKeysPath"];
+if (string.IsNullOrWhiteSpace(keyDirectory))
+{
+    var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    if (string.IsNullOrWhiteSpace(localData)) localData = AppContext.BaseDirectory;
+    keyDirectory = Path.Combine(localData, "TidyMail", "keys");
+}
+Directory.CreateDirectory(keyDirectory);
+builder.Services.AddDataProtection()
+    .SetApplicationName("TidyMail")
+    .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -38,11 +49,12 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddControllers();
 
-builder.Services.AddScoped<ITokenStore, SessionTokenStore>();
+builder.Services.AddScoped<ITokenStore, SqliteTokenStore>();
 builder.Services.AddScoped<IGoogleOAuthService, GoogleOAuthService>();
 builder.Services.AddScoped<IGmailCredentialFactory, GoogleUserCredentialFactory>();
 builder.Services.AddScoped<IGmailClient, GmailClient>();
-builder.Services.AddSingleton<IMailboxMetadataStore, MailboxMetadataStore>();
+builder.Services.AddSingleton<IMailboxMetadataStore, SqliteMailboxMetadataStore>();
+builder.Services.AddSingleton<MailboxOperationCoordinator>();
 builder.Services.AddScoped<IUserMailboxKeyProvider, UserMailboxKeyProvider>();
 builder.Services.AddScoped<MailboxUserContext>();
 builder.Services.AddScoped<MailboxScanService>();

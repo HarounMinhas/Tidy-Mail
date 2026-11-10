@@ -39,6 +39,7 @@ else
                             <strong>@suggestion.Title</strong> <span class="badge text-bg-secondary">@suggestion.RiskLevel</span>
                             <div>@suggestion.Explanation</div>
                             <small>@suggestion.MessageCount messages · Suggested action: @suggestion.SuggestedAction</small>
+                            <div><button type="button" class="btn btn-sm btn-outline-primary mt-1" @onclick="() => ReviewSuggestion(suggestion)">Review these messages</button></div>
                         </div>
                     }
                 </div>
@@ -57,15 +58,28 @@ else
         </div>
     </div>
 
-    <SenderOverview />
+    <SenderOverview @key="suggestionVersion" InitialSelectedMessageIds="selectedSuggestionIds"
+        SuggestedSelectionTitle="selectedSuggestionTitle" OnMailboxChanged="RefreshDashboardAsync" />
 }
 
 @code {
     [Parameter] public string UserId { get; set; } = "session";
     private MailboxStats? stats;
     private IReadOnlyList<CleanupSuggestion> suggestions = Array.Empty<CleanupSuggestion>();
+    private IReadOnlyCollection<string> selectedSuggestionIds = Array.Empty<string>();
+    private string? selectedSuggestionTitle;
+    private int suggestionVersion;
 
-    protected override async Task OnInitializedAsync()
+    private void ReviewSuggestion(CleanupSuggestion suggestion)
+    {
+        selectedSuggestionIds = suggestion.FilterCriteria.MessageIds;
+        selectedSuggestionTitle = suggestion.Title;
+        suggestionVersion++;
+    }
+
+    protected override Task OnInitializedAsync() => RefreshDashboardAsync();
+
+    private async Task RefreshDashboardAsync()
     {
         var scan = await MetadataStore.GetCurrentScanAsync(UserId, CancellationToken.None);
         var metadata = await MetadataStore.GetMetadataAsync(UserId, CancellationToken.None);

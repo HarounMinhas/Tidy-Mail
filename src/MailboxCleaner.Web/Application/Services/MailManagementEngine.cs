@@ -9,10 +9,12 @@ public sealed class MailManagementEngine
     private readonly HashSet<string> _expandedSenders = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<MailItemDto>> _messagesBySender;
     private readonly string[] _suggestions;
+    private readonly HashSet<string> _knownMessageIds;
 
     public MailManagementEngine(IEnumerable<MailItemDto> messages)
     {
         _messages = messages.ToList();
+        _knownMessageIds = _messages.Select(message => message.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         _messagesBySender = _messages.GroupBy(message => message.SenderEmail, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
         _suggestions = _messages.SelectMany(message => new[] { message.SenderEmail, message.SenderName, message.Subject })
@@ -23,6 +25,18 @@ public sealed class MailManagementEngine
     }
 
     public IReadOnlyCollection<string> SelectedMessageIds => _selectedMessageIds;
+    public void ClearSelection() => _selectedMessageIds.Clear();
+    public int CountSelectedOutside(IEnumerable<string> visibleMessageIds)
+    {
+        var visible = visibleMessageIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return _selectedMessageIds.Count(id => !visible.Contains(id));
+    }
+    public void SelectMessages(IEnumerable<string> ids)
+    {
+        foreach (var id in ids)
+            if (_knownMessageIds.Contains(id))
+                _selectedMessageIds.Add(id);
+    }
     public IReadOnlyCollection<string> ExpandedSenders => _expandedSenders;
 
     public IEnumerable<IGrouping<string, MailItemDto>> GroupedBySender =>
@@ -37,32 +51,27 @@ public sealed class MailManagementEngine
         }
     }
 
-    public bool IsSenderFullySelected(string senderEmail)
+    public bool IsSenderFullySelected(string senderEmail, IReadOnlyCollection<string>? visibleIds = null)
     {
-        var ids = _messagesBySender.TryGetValue(senderEmail, out var senderMessages)
-            ? senderMessages.Select(message => message.Id).ToList()
-            : new List<string>();
-
+        var ids = GetSenderMessageIds(senderEmail, visibleIds).ToList();
         return ids.Count > 0 && ids.All(id => _selectedMessageIds.Contains(id));
     }
 
-    public void ToggleSenderSelection(string senderEmail, bool selected)
+    public void ToggleSenderSelection(string senderEmail, bool selected, IReadOnlyCollection<string>? visibleIds = null)
     {
-        var ids = _messagesBySender.TryGetValue(senderEmail, out var senderMessages)
-            ? senderMessages.Select(message => message.Id)
-            : Enumerable.Empty<string>();
-
-        foreach (var id in ids)
+        foreach (var id in GetSenderMessageIds(senderEmail, visibleIds))
         {
-            if (selected)
-            {
-                _selectedMessageIds.Add(id);
-            }
-            else
-            {
-                _selectedMessageIds.Remove(id);
-            }
+            if (selected) _selectedMessageIds.Add(id);
+            else _selectedMessageIds.Remove(id);
         }
+    }
+
+    private IEnumerable<string> GetSenderMessageIds(string senderEmail, IReadOnlyCollection<string>? visibleIds)
+    {
+        if (!_messagesBySender.TryGetValue(senderEmail, out var senderMessages)) return Enumerable.Empty<string>();
+        if (visibleIds is null) return senderMessages.Select(message => message.Id);
+        var allowed = visibleIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return senderMessages.Where(message => allowed.Contains(message.Id)).Select(message => message.Id);
     }
 
     public void ToggleMessageSelection(string id, bool selected)
@@ -76,7 +85,9 @@ public sealed class MailManagementEngine
         _selectedMessageIds.Remove(id);
     }
 
-    public IReadOnlyList<MailItemDto> FilterMessages(string senderOrKeyword, string status, string folder, bool? hasAttachment)
+    public IReadOnlyList<MailItemDto> FilterMessages(string senderOrKeyword, string status, string folder, bool? hasAttachment,
+        string ageBucket = "", bool newsletterOnly = false, bool notificationOnly = false, string? labelId = null,
+        DateTimeOffset? clock = null)
     {
         IEnumerable<MailItemDto> results = _messages;
 
@@ -107,6 +118,18 @@ public sealed class MailManagementEngine
         {
             results = results.Where(message => message.HasAttachment == hasAttachment.Value);
         }
+
+        var now = clock ?? DateTimeOffset.UtcNow;
+        results = ageBucket switch
+        {
+            "6m" => results.Where(message => message.ReceivedAt < now.AddMonths(-6)),
+            "1y" => results.Where(message => message.ReceivedAt < now.AddYears(-1)),
+            _ => results
+        };
+        if (newsletterOnly) results = results.Where(message => message.IsNewsletterLike);
+        if (notificationOnly) results = results.Where(message => message.IsNotificationLike);
+        if (!string.IsNullOrWhiteSpace(labelId))
+            results = results.Where(message => message.LabelIds?.Contains(labelId, StringComparer.OrdinalIgnoreCase) == true);
 
         return results.OrderByDescending(message => message.ReceivedAt).ToList();
     }
@@ -160,7 +183,8 @@ public enum MailBulkAction
     Archive,
     Move,
     MarkRead,
-    MarkUnread
+    MarkUnread,
+    AddLabel
 }
 
 public sealed record ActionPreview(MailBulkAction Action, int SelectedCount, string DestinationFolder, IReadOnlyList<string> MessageIds);

@@ -15,19 +15,22 @@ public sealed class SenderOverviewService : ISenderOverviewService
     private readonly GmailBulkActionService? _bulkActionService;
     private readonly IUserMailboxKeyProvider? _userMailboxKeyProvider;
     private readonly MailboxUserContext? _mailboxUserContext;
+    private readonly MailboxOperationCoordinator _coordinator;
 
     public SenderOverviewService(ISenderAggregationService aggregationService, IGmailClient gmailClient)
     {
         _gmailClient = gmailClient;
+        _coordinator = new MailboxOperationCoordinator();
     }
 
-    public SenderOverviewService(ISenderAggregationService aggregationService, IGmailClient gmailClient, IMailboxMetadataStore metadataStore, GmailBulkActionService bulkActionService, IUserMailboxKeyProvider userMailboxKeyProvider, MailboxUserContext mailboxUserContext)
+    public SenderOverviewService(ISenderAggregationService aggregationService, IGmailClient gmailClient, IMailboxMetadataStore metadataStore, GmailBulkActionService bulkActionService, IUserMailboxKeyProvider userMailboxKeyProvider, MailboxUserContext mailboxUserContext, MailboxOperationCoordinator? coordinator = null)
     {
         _gmailClient = gmailClient;
         _metadataStore = metadataStore;
         _bulkActionService = bulkActionService;
         _userMailboxKeyProvider = userMailboxKeyProvider;
         _mailboxUserContext = mailboxUserContext;
+        _coordinator = coordinator ?? new MailboxOperationCoordinator();
     }
 
     public async Task<IReadOnlyList<SenderStatDto>> GetOverviewAsync(GetSenderOverviewQuery query, CancellationToken cancellationToken)
@@ -68,47 +71,96 @@ public sealed class SenderOverviewService : ISenderOverviewService
     {
         var userKey = GetUserKey();
         var cachedMetadata = _metadataStore is null ? Array.Empty<MailboxMetadata>() : await _metadataStore.GetMetadataAsync(userKey, cancellationToken);
-        var metadataItems = cachedMetadata.Count > 0
+        var scan = _metadataStore is null ? null : await _metadataStore.GetCurrentScanAsync(userKey, cancellationToken);
+        var hasLocalSnapshot = cachedMetadata.Count > 0 || scan?.Status == MailboxScanStatus.Completed;
+        var metadataItems = hasLocalSnapshot
             ? cachedMetadata.Select(ToGmailMetadata).ToList()
             : await _gmailClient.FetchMessageMetadataAsync(cancellationToken);
-        var labelsById = cachedMetadata.Count > 0
-            ? new Dictionary<string, GmailLabel>(StringComparer.OrdinalIgnoreCase)
-            : (await _gmailClient.FetchLabelsAsync(cancellationToken))
-                .GroupBy(label => label.Id, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        // Label names must be available even when message metadata came from local cache.
+        var labelsById = (await _gmailClient.FetchLabelsAsync(cancellationToken))
+            .GroupBy(label => label.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         return metadataItems.Select(item =>
         {
             var (email, name) = ParseSender(item.FromHeader);
             var domain = email.Contains('@') ? email.Split('@')[^1] : string.Empty;
-            return new MailItemDto(item.Id, email, name, domain, item.Subject, item.ReceivedAt, item.IsRead, item.HasAttachment, item.Labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase) is false, ResolvePrimaryFolder(item.Labels, labelsById));
+            var newsletter = !string.IsNullOrWhiteSpace(item.ListUnsubscribe)
+                || string.Equals(item.Precedence, "bulk", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.Precedence, "list", StringComparison.OrdinalIgnoreCase);
+            var notification = email.Contains("notify", StringComparison.OrdinalIgnoreCase)
+                || email.Contains("notification", StringComparison.OrdinalIgnoreCase)
+                || item.Subject.Contains("alert", StringComparison.OrdinalIgnoreCase)
+                || item.Subject.Contains("notification", StringComparison.OrdinalIgnoreCase);
+            return new MailItemDto(item.Id, email, name, domain, item.Subject, item.ReceivedAt,
+                item.IsRead, item.HasAttachment, !item.Labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase),
+                ResolvePrimaryFolder(item.Labels, labelsById), newsletter, notification, item.Labels);
         }).ToList();
+    }
+
+    /// <summary>Re-read Gmail after an uncertain partial mutation, not just local cache.</summary>
+    public async Task<IReadOnlyList<MailItemDto>> ReconcileMailItemsAsync(CancellationToken cancellationToken)
+    {
+        var userKey = GetUserKey();
+        using var operation = await _coordinator.EnterAsync(userKey, cancellationToken);
+        var liveMetadata = await _gmailClient.FetchMessageMetadataAsync(true, null, cancellationToken);
+        if (_metadataStore is not null)
+            await _metadataStore.ReplaceMetadataAsync(userKey, liveMetadata.Select(MailboxScanService.Map), cancellationToken);
+        return await GetMailItemsAsync(cancellationToken);
     }
 
     public Task<IReadOnlyList<GmailLabel>> GetLabelsAsync(CancellationToken cancellationToken) => _gmailClient.FetchLabelsAsync(cancellationToken);
 
-    public async Task ApplyActionAsync(MailBulkAction action, IReadOnlyCollection<string> messageIds, string? labelId, string? newLabelName, CancellationToken cancellationToken)
+    // Preserve the original service API for existing callers and tests.
+    public async Task ApplyActionAsync(MailBulkAction action, IReadOnlyCollection<string> messageIds,
+        string? labelId, string? newLabelName, CancellationToken cancellationToken)
+    {
+        var result = await ApplyActionWithResultAsync(action, messageIds, labelId, newLabelName, cancellationToken);
+        if (result.RequiresReconciliation)
+            throw new GmailOperationException(
+                $"Gmail accepted {result.TotalSucceeded} of {result.TotalRequested}; " +
+                $"{result.TotalFailed} rejected and {result.TotalUnknown} uncertain. Review before retrying.",
+                new InvalidOperationException(string.Join("; ", result.ErrorMessages)));
+    }
+
+    public async Task<GmailBulkActionResult> ApplyActionWithResultAsync(MailBulkAction action,
+        IReadOnlyCollection<string> messageIds, string? labelId, string? newLabelName,
+        CancellationToken cancellationToken)
     {
         if (_bulkActionService is not null)
         {
-            var result = await _bulkActionService.ApplyAsync(GetUserKey(), GmailBulkActionService.FromLegacyAction(action), messageIds, labelId, newLabelName, cancellationToken);
-            if (result.TotalFailed > 0) throw new GmailOperationException($"Gmail action completed for {result.TotalSucceeded} of {result.TotalRequested} messages; {result.TotalFailed} failed.", new InvalidOperationException(string.Join("; ", result.ErrorMessages)));
-            return;
+            return await _bulkActionService.ApplyAsync(GetUserKey(),
+                GmailBulkActionService.FromLegacyAction(action), messageIds,
+                labelId, newLabelName, cancellationToken);
         }
 
-        switch (action)
+        // Compatibility path used by tests; production calls GmailBulkActionService.
+        var ids = messageIds.Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (ids.Count == 0) return GmailBulkActionResult.Empty;
+
+        var targetLabelId = labelId;
+        if (action is MailBulkAction.Move or MailBulkAction.AddLabel)
         {
-            case MailBulkAction.Delete: await _gmailClient.TrashMessagesAsync(messageIds, cancellationToken); break;
-            case MailBulkAction.Archive: await _gmailClient.ArchiveMessagesAsync(messageIds, cancellationToken); break;
-            case MailBulkAction.MarkRead: await _gmailClient.MarkMessagesReadAsync(messageIds, cancellationToken); break;
-            case MailBulkAction.MarkUnread: await _gmailClient.MarkMessagesUnreadAsync(messageIds, cancellationToken); break;
-            case MailBulkAction.Move:
-                var target = !string.IsNullOrWhiteSpace(newLabelName) ? await _gmailClient.CreateLabelAsync(newLabelName, cancellationToken) : null;
-                await _gmailClient.MoveMessagesToLabelAsync(messageIds, target?.Id ?? labelId ?? throw new InvalidOperationException("A Gmail label is required."), cancellationToken);
-                break;
+            if (!string.IsNullOrWhiteSpace(newLabelName))
+                targetLabelId = (await _gmailClient.CreateLabelAsync(newLabelName, cancellationToken)).Id;
+            if (string.IsNullOrWhiteSpace(targetLabelId))
+                throw new ArgumentException("A Gmail label is required.", nameof(labelId));
         }
-    }
 
+        var result = action switch
+        {
+            MailBulkAction.Delete => await _gmailClient.TrashMessagesAsync(ids, cancellationToken),
+            MailBulkAction.Archive => await _gmailClient.ArchiveMessagesAsync(ids, cancellationToken),
+            MailBulkAction.MarkRead => await _gmailClient.MarkMessagesReadAsync(ids, cancellationToken),
+            MailBulkAction.MarkUnread => await _gmailClient.MarkMessagesUnreadAsync(ids, cancellationToken),
+            MailBulkAction.Move => await _gmailClient.MoveMessagesToLabelAsync(ids, targetLabelId!, cancellationToken),
+            MailBulkAction.AddLabel => await _gmailClient.AddLabelToMessagesAsync(ids, targetLabelId!, cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(action), action, null)
+        };
+        return new GmailBulkActionResult(ids.Count, result.TotalSucceeded, result.TotalFailed,
+            result.FailedMessageIds, result.ErrorMessages, result.UnknownMessageIds, targetLabelId);
+    }
 
     private string GetUserKey() => _mailboxUserContext?.CurrentUserKey ?? _userMailboxKeyProvider?.GetCurrentUserKey() ?? "legacy-test-session";
 
@@ -122,6 +174,9 @@ public sealed class SenderOverviewService : ISenderOverviewService
 
     private static string ResolvePrimaryFolder(IReadOnlyCollection<string> labels, IReadOnlyDictionary<string, GmailLabel> labelsById)
     {
+        if (labels.Contains("TRASH", StringComparer.OrdinalIgnoreCase)) return "Trash";
+        if (labels.Contains("SPAM", StringComparer.OrdinalIgnoreCase)) return "Spam";
+        if (labels.Contains("DRAFT", StringComparer.OrdinalIgnoreCase)) return "Draft";
         if (labels.Contains("INBOX", StringComparer.OrdinalIgnoreCase)) return "Inbox";
 
         var userLabel = labels

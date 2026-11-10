@@ -1,3 +1,5 @@
+using Google;
+using System.Net;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Gmail.v1.Data;
 using System.Collections.Concurrent;
@@ -23,10 +25,17 @@ public sealed class GmailClient : IGmailClient
         return metadata.Select(item => item.FromHeader).Where(header => !string.IsNullOrWhiteSpace(header)).ToList();
     }
 
-    public async Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(CancellationToken cancellationToken)
+        => FetchMessageMetadataAsync(null, cancellationToken);
+
+    public Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(IProgress<GmailScanProgress>? progress, CancellationToken cancellationToken)
+        => FetchMessageMetadataAsync(false, progress, cancellationToken);
+
+    public async Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(bool forceRefresh, IProgress<GmailScanProgress>? progress, CancellationToken cancellationToken)
     {
-        if (_metadataCache is not null && _metadataCacheExpiresAt > DateTimeOffset.UtcNow)
+        if (!forceRefresh && _metadataCache is not null && _metadataCacheExpiresAt > DateTimeOffset.UtcNow)
         {
+            progress?.Report(new GmailScanProgress(0, _metadataCache.Count, _metadataCache.Count, true));
             return _metadataCache;
         }
 
@@ -39,6 +48,7 @@ public sealed class GmailClient : IGmailClient
         try
         {
             var allMessageIds = new List<string>();
+            var pageNumber = 0;
             var listRequest = service.Users.Messages.List("me");
             listRequest.IncludeSpamTrash = false;
             listRequest.MaxResults = PageSize;
@@ -47,18 +57,26 @@ public sealed class GmailClient : IGmailClient
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var response = await ExecuteWithRetryAsync(() => listRequest.ExecuteAsync(cancellationToken), cancellationToken);
+                pageNumber++;
                 if (response.Messages is not null)
                 {
                     allMessageIds.AddRange(response.Messages.Where(m => !string.IsNullOrWhiteSpace(m.Id)).Select(m => m.Id));
                 }
 
+                progress?.Report(new GmailScanProgress(pageNumber, allMessageIds.Count, 0, false));
                 listRequest.PageToken = response.NextPageToken;
             } while (!string.IsNullOrWhiteSpace(listRequest.PageToken));
 
+            var uniqueIds = allMessageIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            // Gmail METADATA format does not include MIME parts. Search message IDs
+            // separately to classify attachments without downloading message bodies.
+            var attachmentIds = await FetchAttachmentIdsAsync(service, cancellationToken);
+            progress?.Report(new GmailScanProgress(pageNumber, uniqueIds.Count, 0, true));
+            var scannedMessages = 0;
             var metadataItems = new ConcurrentBag<GmailMessageMetadata>();
             var failures = new ConcurrentBag<string>();
             await Parallel.ForEachAsync(
-                allMessageIds.Distinct(StringComparer.OrdinalIgnoreCase),
+                uniqueIds,
                 new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = MaxConcurrency },
                 async (messageId, token) =>
                 {
@@ -77,7 +95,10 @@ public sealed class GmailClient : IGmailClient
                         var labels = message.LabelIds?.ToList() ?? new List<string>();
                         var listUnsubscribe = GetHeader(message, "List-Unsubscribe");
                         var precedence = GetHeader(message, "Precedence");
-                        metadataItems.Add(new GmailMessageMetadata(message.Id ?? messageId, fromHeader, subject, receivedAt, labels.Contains("UNREAD", StringComparer.OrdinalIgnoreCase) is false, ContainsAttachment(message.Payload), labels, message.ThreadId, message.SizeEstimate, listUnsubscribe, precedence, DateTimeOffset.UtcNow));
+                        metadataItems.Add(new GmailMessageMetadata(message.Id ?? messageId, fromHeader, subject, receivedAt, labels.Contains("UNREAD", StringComparer.OrdinalIgnoreCase) is false, attachmentIds.Contains(messageId), labels, message.ThreadId, message.SizeEstimate, listUnsubscribe, precedence, DateTimeOffset.UtcNow));
+                        var scanned = Interlocked.Increment(ref scannedMessages);
+                        if (scanned % 25 == 0 || scanned == uniqueIds.Count)
+                            progress?.Report(new GmailScanProgress(pageNumber, uniqueIds.Count, scanned, true));
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -106,6 +127,112 @@ public sealed class GmailClient : IGmailClient
         }
     }
 
+    public async Task<string?> GetMailboxHistoryIdAsync(CancellationToken cancellationToken)
+    {
+        var service = await CreateRequiredServiceAsync(cancellationToken);
+        var profile = await ExecuteWithRetryAsync(
+            () => service.Users.GetProfile("me").ExecuteAsync(cancellationToken), cancellationToken);
+        return profile.HistoryId?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    public async Task<GmailHistoryDelta?> FetchHistoryDeltaAsync(string startHistoryId, CancellationToken cancellationToken)
+    {
+        if (!ulong.TryParse(startHistoryId, out var cursor)) return null;
+        var service = await CreateRequiredServiceAsync(cancellationToken);
+        var request = service.Users.History.List("me");
+        request.StartHistoryId = cursor;
+        request.MaxResults = 500;
+
+        var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var deleted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lastHistoryId = startHistoryId;
+        do
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ListHistoryResponse page;
+            try
+            {
+                page = await ExecuteWithRetryAsync(() => request.ExecuteAsync(cancellationToken), cancellationToken);
+            }
+            catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound)
+            {
+                // Gmail retains history for a limited time. Caller falls back to full scan.
+                return null;
+            }
+
+            if (page.HistoryId.HasValue)
+                lastHistoryId = page.HistoryId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            foreach (var history in page.History ?? Array.Empty<History>())
+            {
+                foreach (var entry in history.MessagesDeleted ?? Array.Empty<HistoryMessageDeleted>())
+                {
+                    var id = entry.Message?.Id;
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    changed.Remove(id);
+                    deleted.Add(id);
+                }
+
+                var changedIds = (history.MessagesAdded ?? Array.Empty<HistoryMessageAdded>())
+                    .Select(entry => entry.Message?.Id)
+                    .Concat((history.LabelsAdded ?? Array.Empty<HistoryLabelAdded>()).Select(entry => entry.Message?.Id))
+                    .Concat((history.LabelsRemoved ?? Array.Empty<HistoryLabelRemoved>()).Select(entry => entry.Message?.Id));
+                foreach (var id in changedIds)
+                {
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    deleted.Remove(id);
+                    changed.Add(id);
+                }
+            }
+            request.PageToken = page.NextPageToken;
+        } while (!string.IsNullOrWhiteSpace(request.PageToken));
+
+        var updates = new List<GmailMessageMetadata>();
+        if (changed.Count > 0)
+        {
+            var attachmentIds = await FetchAttachmentIdsAsync(service, cancellationToken);
+            foreach (var id in changed)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Message message;
+                try
+                {
+                    message = await FetchMetadataAsync(service, id, cancellationToken);
+                }
+                catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound)
+                {
+                    deleted.Add(id);
+                    continue;
+                }
+
+                var labels = message.LabelIds?.ToList() ?? new List<string>();
+                if (labels.Contains("TRASH", StringComparer.OrdinalIgnoreCase)
+                    || labels.Contains("SPAM", StringComparer.OrdinalIgnoreCase))
+                {
+                    deleted.Add(id); // full scans exclude spam and trash
+                    continue;
+                }
+                var rawDate = GetHeader(message, "Date");
+                var date = DateTimeOffset.TryParse(rawDate, out var parsed) ? parsed : (DateTimeOffset?)null;
+                updates.Add(new GmailMessageMetadata(
+                    message.Id ?? id,
+                    GetHeader(message, "From") ?? "Unknown sender",
+                    GetHeader(message, "Subject") ?? "(No subject)",
+                    date,
+                    !labels.Contains("UNREAD", StringComparer.OrdinalIgnoreCase),
+                    attachmentIds.Contains(id),
+                    labels,
+                    message.ThreadId,
+                    message.SizeEstimate,
+                    GetHeader(message, "List-Unsubscribe"),
+                    GetHeader(message, "Precedence"),
+                    DateTimeOffset.UtcNow));
+            }
+        }
+
+        return new GmailHistoryDelta(lastHistoryId, updates, deleted);
+    }
+
     public async Task<IReadOnlyList<GmailLabel>> FetchLabelsAsync(CancellationToken cancellationToken)
     {
         if (_labelCache is not null)
@@ -123,7 +250,7 @@ public sealed class GmailClient : IGmailClient
         _labelCache = response.Labels?.Where(label => !string.IsNullOrWhiteSpace(label.Id) && !string.IsNullOrWhiteSpace(label.Name))
             .Select(label => new GmailLabel(label.Id, label.Name, label.Type?.Equals("system", StringComparison.OrdinalIgnoreCase) == true))
             .OrderBy(label => label.Name)
-            .ToList() ?? Array.Empty<GmailLabel>();
+            .ToList() ?? new List<GmailLabel>();
         return _labelCache;
     }
 
@@ -132,20 +259,23 @@ public sealed class GmailClient : IGmailClient
     public Task<GmailActionResult> MarkMessagesReadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: Array.Empty<string>(), removeLabels: ["UNREAD"], cancellationToken);
     public Task<GmailActionResult> MarkMessagesUnreadAsync(IReadOnlyCollection<string> messageIds, CancellationToken cancellationToken) => ModifyMessagesAsync(messageIds, addLabels: ["UNREAD"], removeLabels: Array.Empty<string>(), cancellationToken);
 
+    public Task<GmailActionResult> AddLabelToMessagesAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken)
+        => ModifyMessagesAsync(messageIds, addLabels: [labelId], removeLabels: Array.Empty<string>(), cancellationToken);
+
     public async Task<GmailActionResult> MoveMessagesToLabelAsync(IReadOnlyCollection<string> messageIds, string labelId, CancellationToken cancellationToken)
     {
-        var metadataById = (await FetchMessageMetadataAsync(cancellationToken))
-            .GroupBy(message => message.Id, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        if (messageIds.Count == 0) return GmailActionResult.Empty;
         var labelsById = (await FetchLabelsAsync(cancellationToken))
             .GroupBy(label => label.Id, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
-        return await ExecuteBatchAsync(messageIds, (service, id) =>
+        // Only fetch labels for the messages selected by the user, not the whole mailbox.
+        return await ExecuteBatchAsync(messageIds, async (service, id) =>
         {
-            var removeLabels = ResolveLabelsToRemoveForMove(metadataById.TryGetValue(id, out var metadata) ? metadata.Labels : Array.Empty<string>(), labelId, labelsById);
+            var current = await FetchMetadataAsync(service, id, cancellationToken);
+            var removeLabels = ResolveLabelsToRemoveForMove(current.LabelIds?.ToList() ?? new List<string>(), labelId, labelsById);
             var request = new ModifyMessageRequest { AddLabelIds = [labelId], RemoveLabelIds = removeLabels.ToList() };
-            return service.Users.Messages.Modify(request, "me", id).ExecuteAsync(cancellationToken);
+            return await service.Users.Messages.Modify(request, "me", id).ExecuteAsync(cancellationToken);
         }, cancellationToken);
     }
 
@@ -171,6 +301,7 @@ public sealed class GmailClient : IGmailClient
         var ids = messageIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var succeeded = new List<string>();
         var failed = new List<string>();
+        var unknown = new List<string>();
         var errors = new List<string>();
         try
         {
@@ -192,12 +323,13 @@ public sealed class GmailClient : IGmailClient
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    failed.AddRange(chunkIds);
+                    if (IsUncertainWriteOutcome(ex)) unknown.AddRange(chunkIds);
+                    else failed.AddRange(chunkIds);
                     errors.Add(ex.Message);
                 }
             }
 
-            return new GmailActionResult(ids.Count, succeeded, failed, errors);
+            return new GmailActionResult(ids.Count, succeeded, failed, errors, unknown);
         }
         finally
         {
@@ -212,6 +344,7 @@ public sealed class GmailClient : IGmailClient
         var ids = messageIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var succeeded = new List<string>();
         var failed = new List<string>();
+        var unknown = new List<string>();
         var errors = new List<string>();
         try
         {
@@ -225,12 +358,13 @@ public sealed class GmailClient : IGmailClient
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    failed.Add(messageId);
+                    if (IsUncertainWriteOutcome(ex)) unknown.Add(messageId);
+                    else failed.Add(messageId);
                     errors.Add($"{messageId}: {ex.Message}");
                 }
             }
 
-            return new GmailActionResult(ids.Count, succeeded, failed, errors);
+            return new GmailActionResult(ids.Count, succeeded, failed, errors, unknown);
         }
         finally
         {
@@ -290,15 +424,63 @@ public sealed class GmailClient : IGmailClient
     {
         for (var attempt = 1; ; attempt++)
         {
-            try { return await operation(); }
-            catch when (attempt < 3 && !cancellationToken.IsCancellationRequested) { await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt), cancellationToken); }
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return await operation();
+            }
+            catch (Exception ex) when (attempt < 4 && !cancellationToken.IsCancellationRequested && IsTransient(ex))
+            {
+                // Exponential backoff with jitter for throttling and transient API failures.
+                var delay = 250 * (1 << (attempt - 1)) + Random.Shared.Next(0, 200);
+                await Task.Delay(TimeSpan.FromMilliseconds(delay), cancellationToken);
+            }
         }
     }
+
+    private static bool IsUncertainWriteOutcome(Exception exception) => exception switch
+    {
+        GoogleApiException api => (int)api.HttpStatusCode == 429 || (int)api.HttpStatusCode >= 500,
+        HttpRequestException => true,
+        TaskCanceledException => true,
+        _ => false
+    };
+
+    private static bool IsTransient(Exception exception) => exception switch
+    {
+        GoogleApiException api => api.HttpStatusCode == HttpStatusCode.TooManyRequests
+            || api.HttpStatusCode == HttpStatusCode.InternalServerError
+            || api.HttpStatusCode == HttpStatusCode.BadGateway
+            || api.HttpStatusCode == HttpStatusCode.ServiceUnavailable
+            || api.HttpStatusCode == HttpStatusCode.GatewayTimeout,
+        HttpRequestException => true,
+        TaskCanceledException => true,
+        _ => false
+    };
 
     private void InvalidateCache()
     {
         _metadataCache = null; _labelCache = null; _metadataCacheExpiresAt = default;
     }
 
-    private static bool ContainsAttachment(MessagePart? payload) => payload is not null && (!string.IsNullOrWhiteSpace(payload.Filename) || !string.IsNullOrWhiteSpace(payload.Body?.AttachmentId) || payload.Parts?.Any(ContainsAttachment) == true);
+    private static async Task<HashSet<string>> FetchAttachmentIdsAsync(GmailService service, CancellationToken cancellationToken)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var request = service.Users.Messages.List("me");
+        request.Q = "has:attachment";
+        request.IncludeSpamTrash = false;
+        request.MaxResults = PageSize;
+        do
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var response = await ExecuteWithRetryAsync(() => request.ExecuteAsync(cancellationToken), cancellationToken);
+            if (response.Messages is not null)
+            {
+                foreach (var message in response.Messages)
+                    if (!string.IsNullOrWhiteSpace(message.Id)) result.Add(message.Id);
+            }
+            request.PageToken = response.NextPageToken;
+        } while (!string.IsNullOrWhiteSpace(request.PageToken));
+        return result;
+    }
 }

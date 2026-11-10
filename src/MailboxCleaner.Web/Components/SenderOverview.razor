@@ -49,6 +49,24 @@
                         <option value="false">No attachment</option>
                     </select>
                 </div>
+                <div class="col-md-2">
+                    <label class="form-label">Age</label>
+                    <select class="form-select" @bind="AgeFilter">
+                        <option value="">Any age</option>
+                        <option value="6m">Older than 6 months</option>
+                        <option value="1y">Older than 1 year</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Gmail label</label>
+                    <select class="form-select" @bind="GmailLabelFilter">
+                        <option value="">All labels</option>
+                        @foreach (var label in existingLabels)
+                        {
+                            <option value="@label.Id">@label.Name</option>
+                        }
+                    </select>
+                </div>
                 <div class="col-md-6">
                     <label class="form-label">Autocomplete sender/keyword</label>
                     <input class="form-control" list="message-query-options" @bind="MessageQuery" @bind:event="oninput" placeholder="Search sender or keyword" />
@@ -65,6 +83,18 @@
                         <label class="form-check-label" for="noreplyOnly">Noreply only</label>
                     </div>
                 </div>
+                <div class="col-md-3">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" id="newsletterOnly" @bind="NewsletterOnly" />
+                        <label class="form-check-label" for="newsletterOnly">Likely newsletters only</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" id="notificationOnly" @bind="NotificationOnly" />
+                        <label class="form-check-label" for="notificationOnly">Notifications only</label>
+                    </div>
+                </div>
             </div>
         </div>
     }
@@ -74,13 +104,51 @@
 {
     <div class="alert alert-info"><span class="spinner-border spinner-border-sm me-2"></span>@progressMessage</div>
 }
+@if (!string.IsNullOrWhiteSpace(SuggestedSelectionTitle) && suggestedSelectionCount > 0)
+{
+    <div class="alert alert-info" role="status">
+        <strong>Review: @SuggestedSelectionTitle</strong> — @suggestedSelectionCount messages selected.
+        No action has been chosen or performed. Inspect the selection below and explicitly choose an action if desired.
+    </div>
+}
 @if (!string.IsNullOrWhiteSpace(successMessage))
 {
     <div class="alert alert-success">@successMessage</div>
 }
 @if (!string.IsNullOrWhiteSpace(errorMessage))
 {
-    <div class="alert alert-danger">@errorMessage</div>
+    <div class="alert alert-danger">@errorMessage
+        @if (NeedsGmailReconnect)
+        {
+            <div class="mt-2"><a href="/auth/login" class="btn btn-sm btn-outline-primary">Reconnect Google account</a></div>
+        }
+    </div>
+}
+@if (lastActionResult is not null)
+{
+    <div class="alert @(lastActionResult.RequiresReconciliation ? "alert-warning" : "alert-success")" role="status">
+        <strong>Last Gmail action: @lastActionKind</strong> —
+        Gmail acknowledged @lastActionResult.TotalSucceeded of @lastActionResult.TotalRequested messages;
+        @lastActionResult.TotalFailed rejected, @lastActionResult.TotalUnknown uncertain.
+        @if (lastActionResult.CacheUpdateFailed)
+        {
+            <div>The local metadata update failed. Gmail accepted the action; check the refreshed mailbox before trying again.</div>
+        }
+        @if (lastActionResult.TotalUnknown > 0)
+        {
+            <div><strong>Do not retry uncertain messages yet:</strong> the request may have reached Gmail. Review the refreshed mailbox first.</div>
+        }
+        @if (lastActionResult.TotalFailed > 0)
+        {
+            <button type="button" class="btn btn-sm btn-outline-dark mt-2" disabled="@(actionInProgress || !canRetryRejected)" @onclick="ReviewRejectedMessages">
+                Select @lastActionResult.TotalFailed rejected messages for a new preview
+            </button>
+        }
+        @if (lastActionResult.ErrorMessages.Count > 0)
+        {
+            <div class="small mt-2">@string.Join(" | ", lastActionResult.ErrorMessages.Take(3))</div>
+        }
+    </div>
 }
 @if (!isLoading && !filteredSenders.Any())
 {
@@ -88,12 +156,22 @@
 }
 else if (!isLoading)
 {
-    <div class="mb-3 text-muted">Selected messages: @engine.SelectedMessageIds.Count</div>
+    <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
+        <span class="text-muted">Selected messages: @engine.SelectedMessageIds.Count (@HiddenSelectedCount hidden by the current filters). Selecting a sender selects only its currently visible messages.</span>
+        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@actionInProgress" @onclick="SelectVisible">Select visible</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(actionInProgress || engine.SelectedMessageIds.Count == 0)" @onclick="ClearSelection">Clear selection</button>
+    </div>
+    @if (HiddenSelectedCount > 0)
+    {
+        <div class="alert alert-warning">You have @HiddenSelectedCount selected messages hidden by active filters. Any bulk action includes these messages unless you clear the selection.</div>
+    }
     <div class="row g-2 mb-3"><div class="col-md-3"><select class="form-select" @bind="SortField"><option value="Count">Message count</option><option value="Name">Sender name</option><option value="Email">Email</option><option value="Newest">Newest message</option><option value="Oldest">Oldest message</option></select></div><div class="col-md-2"><select class="form-select" @bind="SortDirection"><option value="Desc">Descending</option><option value="Asc">Ascending</option></select></div></div>
 
     @foreach (var sender in filteredSenders)
     {
-        var senderMessages = filteredMessages.Where(message => message.SenderEmail.Equals(sender.Email, StringComparison.OrdinalIgnoreCase)).ToList();
+        var senderMessages = filteredBySender.TryGetValue(sender.Email, out var rows)
+            ? rows
+            : new List<MailItemDto>();
         if (!senderMessages.Any())
         {
             continue;
@@ -103,7 +181,7 @@ else if (!isLoading)
         <div class="card mb-2">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <div class="d-flex align-items-center gap-2">
-                    <input type="checkbox" checked="@engine.IsSenderFullySelected(sender.Email)" @onchange="(args) => ToggleSenderSelection(sender.Email, args)" />
+                    <input type="checkbox" checked="@engine.IsSenderFullySelected(sender.Email, senderMessages.Select(m => m.Id).ToList())" @onchange="(args) => ToggleSenderSelection(sender.Email, args)" />
                     <button class="btn btn-sm btn-link text-decoration-none" @onclick="() => ToggleSender(sender.Email)">
                         @sender.Name (@sender.Email) - @senderMessages.Count mails
                     </button>
@@ -153,6 +231,7 @@ else if (!isLoading)
             <button class="btn btn-outline-secondary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkRead)">Mark as read</button>
             <button class="btn btn-outline-secondary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkUnread)">Mark as unread</button>
             <button class="btn btn-outline-warning" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Move)">Move to label</button>
+            <button class="btn btn-outline-success" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.AddLabel)">Add label (keep existing)</button>
         </div>
     </div>
 }
@@ -162,14 +241,57 @@ else if (!isLoading)
     <div class="card mt-3 border-warning">
         <div class="card-header">Confirm action</div>
         <div class="card-body">
-            <p>You are about to apply <strong>@pendingAction</strong> on <strong>@actionPreview?.SelectedCount</strong> messages.</p>
-
-            @if (pendingAction == MailBulkAction.Move)
+            <p>You are about to apply <strong>@pendingAction</strong> to <strong>@actionPreview?.SelectedCount</strong> selected messages.</p>
+            @if (HiddenSelectedCount > 0)
             {
+                <div class="alert alert-warning">This action includes @HiddenSelectedCount messages not currently visible under your filters.</div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="ackHidden" @bind="acknowledgesHiddenSelection" />
+                    <label class="form-check-label" for="ackHidden">Include these hidden selected messages in the action.</label>
+                </div>
+            }
+            @if (pendingAction == MailBulkAction.Delete)
+            {
+                <div class="alert alert-warning">The selected messages will be moved to Gmail Trash. Check the sender and subject examples below before confirming.</div>
+                @if (RequiresExtraConfirmation)
+                {
+                    <div class="alert alert-danger">This selection includes unread, recent, starred or important messages. Review carefully before moving them to Trash.</div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="ackRisk" @bind="acknowledgesRisk" />
+                        <label class="form-check-label" for="ackRisk">I reviewed the potentially important messages and confirm this action.</label>
+                    </div>
+                }
+            }
+            <p class="mb-1"><strong>Affected senders</strong></p>
+            <ul>
+                @foreach (var sender in previewMessages.GroupBy(m => m.SenderEmail, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).Take(5))
+                {
+                    <li>@sender.Key — @sender.Count() messages</li>
+                }
+            </ul>
+            <p class="mb-1"><strong>Sample messages (up to 10)</strong></p>
+            <ul>
+                @foreach (var message in previewMessages.Take(10))
+                {
+                    <li>@message.SenderEmail — @message.Subject</li>
+                }
+            </ul>
+
+            @if (pendingAction == MailBulkAction.Move || pendingAction == MailBulkAction.AddLabel)
+            {
+                @if (pendingAction == MailBulkAction.Move)
+                {
+                    <div class="alert alert-warning">Move to label removes the INBOX label and all other custom labels from selected messages. Read/unread, starred and important flags remain unchanged. To keep other labels, choose <strong>Add label</strong> instead.</div>
+                }
+                else
+                {
+                    <div class="alert alert-info">Add label preserves the INBOX label and all existing labels. It does not archive or move the selected messages.</div>
+                }
                 <div class="row g-2 align-items-end">
                     <div class="col-md-6">
                         <label class="form-label">Destination Gmail label</label>
                         <select class="form-select" @bind="selectedDestinationLabelId" disabled="@(!MoveDestinationLabels.Any())">
+                            <option value="">-- Select a destination label --</option>
                             @if (!MoveDestinationLabels.Any())
                             {
                                 <option value="">No user labels available</option>
@@ -185,11 +307,14 @@ else if (!isLoading)
                         <input class="form-control" @bind="newFolderName" placeholder="Enter folder name" />
                     </div>
                 </div>
+                <p class="small text-muted mt-2">Chosen target: @(string.IsNullOrWhiteSpace(newFolderName)
+                    ? MoveDestinationLabels.FirstOrDefault(l => l.Id == selectedDestinationLabelId)?.Name ?? "None selected"
+                    : $"New label: {newFolderName}").</p>
             }
 
             <div class="mt-3 d-flex gap-2">
                 <button class="btn btn-success" disabled="@(!CanConfirmAction)" @onclick="ConfirmAction">@(actionInProgress ? "Working…" : "Confirm")</button>
-                <button class="btn btn-outline-secondary" @onclick="CancelAction">Cancel</button>
+                <button class="btn btn-outline-secondary" disabled="@actionInProgress" @onclick="CancelAction">Cancel</button>
             </div>
         </div>
     </div>
@@ -208,25 +333,44 @@ else if (!isLoading)
 
     private IReadOnlyCollection<MailItemDto> allMessages = Array.Empty<MailItemDto>();
     private IReadOnlyCollection<MailItemDto> filteredMessages = Array.Empty<MailItemDto>();
+    private Dictionary<string, List<MailItemDto>> filteredBySender = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> visibleMessageIds = new(StringComparer.OrdinalIgnoreCase);
     private List<string> querySuggestions = new();
 
     private string messageQuery = string.Empty;
     private string messageStatusFilter = string.Empty;
     private string folderFilter = string.Empty;
     private string attachmentFilterValue = string.Empty;
+    private string ageFilter = string.Empty;
+    private string gmailLabelFilter = string.Empty;
+    private bool newsletterOnly;
+    private bool notificationOnly;
 
     private MailManagementEngine engine = new(Array.Empty<MailItemDto>());
 
     private bool showActionPane;
     private MailBulkAction? pendingAction;
     private ActionPreview? actionPreview;
-    private string selectedDestinationLabelId = "INBOX";
+    private List<MailItemDto> previewMessages = new();
+    private bool acknowledgesRisk;
+    private bool acknowledgesHiddenSelection;
+    [Parameter] public EventCallback OnMailboxChanged { get; set; }
+    [Parameter] public IReadOnlyCollection<string> InitialSelectedMessageIds { get; set; } = Array.Empty<string>();
+    [Parameter] public string? SuggestedSelectionTitle { get; set; }
+    private int suggestedSelectionCount;
+    private string selectedDestinationLabelId = string.Empty;
     private string newFolderName = string.Empty;
     private List<MailboxCleaner.Web.Infrastructure.Google.GmailLabel> existingLabels = new();
     private bool actionInProgress;
     private string progressMessage = "Loading Gmail metadata…";
     private string successMessage = string.Empty;
     private string errorMessage = string.Empty;
+    private GmailBulkActionResult? lastActionResult;
+    private MailBulkAction? lastActionKind;
+    private bool canRetryRejected;
+    private bool NeedsGmailReconnect => errorMessage.Contains("sign in again", StringComparison.OrdinalIgnoreCase)
+        || errorMessage.Contains("token missing", StringComparison.OrdinalIgnoreCase)
+        || errorMessage.Contains("token expired", StringComparison.OrdinalIgnoreCase);
     private string sortField = "Count";
     private string sortDirection = "Desc";
 
@@ -240,18 +384,39 @@ else if (!isLoading)
         .OrderBy(label => label.Name)
         .ToList();
 
+    private int HiddenSelectedCount => engine.CountSelectedOutside(visibleMessageIds);
+
+    private bool RequiresExtraConfirmation => pendingAction == MailBulkAction.Delete && previewMessages.Any(message =>
+        !message.IsRead || message.ReceivedAt >= DateTimeOffset.UtcNow.AddDays(-30)
+        || message.LabelIds?.Contains("STARRED", StringComparer.OrdinalIgnoreCase) == true
+        || message.LabelIds?.Contains("IMPORTANT", StringComparer.OrdinalIgnoreCase) == true);
+
     private bool CanConfirmAction => !actionInProgress
+        && (HiddenSelectedCount == 0 || acknowledgesHiddenSelection)
+        && (!RequiresExtraConfirmation || acknowledgesRisk)
         && pendingAction.HasValue
         && actionPreview is not null
         && actionPreview.SelectedCount > 0
-        && (pendingAction != MailBulkAction.Move || !string.IsNullOrWhiteSpace(newFolderName) || !string.IsNullOrWhiteSpace(selectedDestinationLabelId));
+        && ((pendingAction != MailBulkAction.Move && pendingAction != MailBulkAction.AddLabel)
+            || !string.IsNullOrWhiteSpace(newFolderName) || !string.IsNullOrWhiteSpace(selectedDestinationLabelId));
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
+        if (InitialSelectedMessageIds.Count > 0)
+        {
+            var availableIds = allMessages.Select(message => message.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var messageId in InitialSelectedMessageIds)
+                if (availableIds.Contains(messageId)) engine.ToggleMessageSelection(messageId, true);
+            suggestedSelectionCount = engine.SelectedMessageIds.Count;
+            // Suggestions only select messages for review. An action requires a separate click and confirmation.
+            foreach (var sender in allMessages.Where(m => engine.SelectedMessageIds.Contains(m.Id))
+                .Select(m => m.SenderEmail).Distinct(StringComparer.OrdinalIgnoreCase).Take(5))
+                engine.ToggleSenderExpansion(sender);
+        }
     }
 
-    private async Task RefreshAsync()
+    private async Task<bool> RefreshAsync(bool fromGmail = false)
     {
         isLoading = true;
         StateHasChanged();
@@ -259,12 +424,15 @@ else if (!isLoading)
         try
         {
             progressMessage = "Loading Gmail metadata…";
-            allMessages = (await OverviewService.GetMailItemsAsync(CancellationToken.None)).ToList();
+            allMessages = (fromGmail
+                ? await OverviewService.ReconcileMailItemsAsync(CancellationToken.None)
+                : await OverviewService.GetMailItemsAsync(CancellationToken.None)).ToList();
             allSenders = BuildSenderStats(allMessages);
             existingLabels = (await OverviewService.GetLabelsAsync(CancellationToken.None)).ToList();
-            selectedDestinationLabelId = MoveDestinationLabels.FirstOrDefault()?.Id ?? string.Empty;
+            selectedDestinationLabelId = string.Empty;
 
             engine = new MailManagementEngine(allMessages);
+            suggestedSelectionCount = 0;
 
             availableDomains = allSenders.Select(sender => sender.Domain)
                 .Where(domain => !string.IsNullOrWhiteSpace(domain))
@@ -273,10 +441,12 @@ else if (!isLoading)
                 .ToList();
 
             ApplyFilters();
+            return true;
         }
         catch (Exception ex)
         {
             errorMessage = $"Unable to load mailbox metadata. {ex.Message}";
+            return false;
         }
         finally
         {
@@ -305,9 +475,16 @@ else if (!isLoading)
             senderResults = senderResults.Where(sender => sender.Email.Contains("noreply", StringComparison.OrdinalIgnoreCase));
         }
 
-        filteredSenders = SortSenders(senderResults).ToList();
-
-        filteredMessages = engine.FilterMessages(messageQuery, messageStatusFilter, folderFilter, ParseAttachmentFilter());
+        filteredMessages = engine.FilterMessages(messageQuery, messageStatusFilter, folderFilter,
+            ParseAttachmentFilter(), ageFilter, newsletterOnly, notificationOnly, gmailLabelFilter);
+        filteredBySender = filteredMessages.GroupBy(message => message.SenderEmail, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+        var visibleSenderEmails = filteredBySender.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        filteredSenders = SortSenders(senderResults.Where(sender => visibleSenderEmails.Contains(sender.Email))).ToList();
+        var renderedSenders = filteredSenders.Select(sender => sender.Email).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        visibleMessageIds = filteredMessages.Where(m => renderedSenders.Contains(m.SenderEmail))
+            .Select(m => m.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (showActionPane) acknowledgesHiddenSelection = false;
         querySuggestions = engine.AutocompleteSuggestions(messageQuery).ToList();
     }
 
@@ -326,45 +503,108 @@ else if (!isLoading)
     private void ToggleSenderSelection(string senderEmail, ChangeEventArgs args)
     {
         var isChecked = args.Value is bool value && value;
-        engine.ToggleSenderSelection(senderEmail, isChecked);
+        var visibleIds = filteredBySender.TryGetValue(senderEmail, out var visibleMessages)
+            ? visibleMessages.Select(message => message.Id).ToList()
+            : new List<string>();
+        engine.ToggleSenderSelection(senderEmail, isChecked, visibleIds);
+        if (suggestedSelectionCount > 0) suggestedSelectionCount = engine.SelectedMessageIds.Count;
+        InvalidatePreview();
+    }
+
+    private void SelectVisible()
+    {
+        var visibleSenders = filteredSenders.Select(s => s.Email).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        engine.SelectMessages(filteredMessages.Where(m => visibleSenders.Contains(m.SenderEmail)).Select(m => m.Id));
+        if (suggestedSelectionCount > 0) suggestedSelectionCount = engine.SelectedMessageIds.Count;
+        InvalidatePreview();
+    }
+
+    private void ClearSelection()
+    {
+        engine.ClearSelection();
+        suggestedSelectionCount = 0;
+        InvalidatePreview();
     }
 
     private void ToggleMessageSelection(string messageId, ChangeEventArgs args)
     {
         var isChecked = args.Value is bool value && value;
         engine.ToggleMessageSelection(messageId, isChecked);
+        if (suggestedSelectionCount > 0) suggestedSelectionCount = engine.SelectedMessageIds.Count;
+        InvalidatePreview();
+    }
+
+    private void InvalidatePreview()
+    {
+        if (showActionPane && !actionInProgress) CancelAction();
     }
 
     private void OpenActionPane(MailBulkAction action)
     {
+        acknowledgesRisk = false;
+        acknowledgesHiddenSelection = false;
         pendingAction = action;
         showActionPane = true;
         actionPreview = engine.PreviewAction(action, selectedDestinationLabelId);
+        var ids = actionPreview.MessageIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        previewMessages = allMessages.Where(message => ids.Contains(message.Id)).ToList();
     }
 
     private async Task ConfirmAction()
     {
-        if (actionInProgress || !pendingAction.HasValue || actionPreview is null || actionPreview.SelectedCount == 0)
+        if (!CanConfirmAction || pendingAction is null || actionPreview is null) return;
+        if (!actionPreview.MessageIds.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(engine.SelectedMessageIds))
         {
+            CancelAction();
+            errorMessage = "The selection changed. Review the updated selection before confirming.";
             return;
         }
 
+        var action = pendingAction.Value;
+        var messageIds = actionPreview.MessageIds.ToList();
         try
         {
             actionInProgress = true;
-            progressMessage = $"Applying {pendingAction} to {actionPreview.SelectedCount} messages…";
+            progressMessage = $"Sending {action} for {messageIds.Count} messages…";
             errorMessage = string.Empty;
             successMessage = string.Empty;
-            await OverviewService.ApplyActionAsync(pendingAction.Value, actionPreview.MessageIds, selectedDestinationLabelId, newFolderName, CancellationToken.None);
-            successMessage = $"{pendingAction} completed for {actionPreview.SelectedCount} messages.";
+            lastActionResult = null;
+            canRetryRejected = false;
+
+            var result = await OverviewService.ApplyActionWithResultAsync(action, messageIds,
+                selectedDestinationLabelId, newFolderName, CancellationToken.None);
+            lastActionResult = result;
+            lastActionKind = action;
+
+            // Created labels must be reused for any later retry, never recreated blindly.
+            if (!string.IsNullOrWhiteSpace(result.TargetLabelId))
+                selectedDestinationLabelId = result.TargetLabelId;
+            newFolderName = string.Empty;
             CancelAction();
-            await RefreshAsync();
+
+            if (result.RequiresReconciliation)
+            {
+                errorMessage = "Gmail returned rejected or uncertain results. The mailbox is being reloaded; " +
+                    "only definitively rejected messages can be offered for retry.";
+                var refreshed = await RefreshAsync(fromGmail: true);
+                canRetryRejected = refreshed && result.TotalFailed > 0;
+                if (canRetryRejected)
+                    engine.SelectMessages(result.FailedMessageIds);
+                else if (!refreshed)
+                    errorMessage = "Gmail reconciliation failed. No retry is available until the mailbox has been refreshed successfully.";
+            }
+            else
+            {
+                successMessage = $"Gmail acknowledged {result.TotalSucceeded} of {result.TotalRequested} messages.";
+                await RefreshAsync();
+            }
+
+            await OnMailboxChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            errorMessage = $"{ex.Message} Refreshing Gmail metadata to reflect any completed changes…";
-            await RefreshAsync();
-            errorMessage = $"{ex.Message} The mailbox was refreshed to reflect any changes that completed before the failure.";
+            errorMessage = $"Could not complete the action: {ex.Message}. Check Gmail before retrying.";
+            // The operation might have reached Gmail. Never report a definitive failure here.
         }
         finally
         {
@@ -373,11 +613,36 @@ else if (!isLoading)
         }
     }
 
+    private void ReviewRejectedMessages()
+    {
+        if (actionInProgress || !canRetryRejected || lastActionResult is null || lastActionKind is null ||
+            lastActionResult.TotalFailed == 0) return;
+
+        engine.ClearSelection();
+        engine.SelectMessages(lastActionResult.FailedMessageIds);
+        if (engine.SelectedMessageIds.Count == 0)
+        {
+            errorMessage = "Rejected messages are no longer present in this mailbox view. Rescan before retrying.";
+            return;
+        }
+
+        var action = lastActionKind.Value;
+        if (!string.IsNullOrWhiteSpace(lastActionResult.TargetLabelId))
+        {
+            selectedDestinationLabelId = lastActionResult.TargetLabelId;
+            newFolderName = string.Empty; // do not recreate a new Gmail label on retry
+        }
+        OpenActionPane(action); // Always require a fresh preview and confirmation.
+    }
+
     private void CancelAction()
     {
         showActionPane = false;
         pendingAction = null;
         actionPreview = null;
+        previewMessages.Clear();
+        acknowledgesRisk = false;
+        acknowledgesHiddenSelection = false;
         newFolderName = string.Empty;
     }
 
@@ -497,5 +762,29 @@ else if (!isLoading)
             attachmentFilterValue = value;
             ApplyFilters();
         }
+    }
+
+    private string AgeFilter
+    {
+        get => ageFilter;
+        set { ageFilter = value; ApplyFilters(); }
+    }
+
+    private string GmailLabelFilter
+    {
+        get => gmailLabelFilter;
+        set { gmailLabelFilter = value; ApplyFilters(); }
+    }
+
+    private bool NewsletterOnly
+    {
+        get => newsletterOnly;
+        set { newsletterOnly = value; ApplyFilters(); }
+    }
+
+    private bool NotificationOnly
+    {
+        get => notificationOnly;
+        set { notificationOnly = value; ApplyFilters(); }
     }
 }

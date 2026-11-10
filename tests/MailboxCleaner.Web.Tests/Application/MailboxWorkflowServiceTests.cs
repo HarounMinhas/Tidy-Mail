@@ -4,6 +4,7 @@ using MailboxCleaner.Web.Application.MailboxScanning;
 using MailboxCleaner.Web.Application.MailboxStats;
 using MailboxCleaner.Web.Infrastructure.Google;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using System.Security.Claims;
 
 namespace MailboxCleaner.Web.Tests.Application;
@@ -50,6 +51,102 @@ public sealed class MailboxWorkflowServiceTests
     }
 
     [Fact]
+    public async Task IncrementalScan_MergesHistoryChangesWithoutFullGmailFetch()
+    {
+        var store = new MailboxMetadataStore();
+        var first = new MailboxScanState
+        {
+            UserId = "user", Status = MailboxScanStatus.Discovering, LastHistoryId = "100"
+        };
+        await store.SaveScanStateAsync(first, CancellationToken.None);
+        await store.ReplaceMetadataAsync("user", CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None);
+        await store.SaveScanStateAsync(first with { Status = MailboxScanStatus.Completed }, CancellationToken.None);
+
+        var gmail = new HistoryGmailClient();
+        var result = await new MailboxScanService(gmail, store).ScanAsync("user", null, CancellationToken.None);
+        var metadata = await store.GetMetadataAsync("user", CancellationToken.None);
+
+        Assert.Equal(MailboxScanStatus.Completed, result.Status);
+        Assert.Equal("110", result.LastHistoryId);
+        Assert.Equal(4, metadata.Count);
+        Assert.DoesNotContain(metadata, message => message.MessageId == "m1");
+        Assert.Contains(metadata, message => message.MessageId == "m5");
+        Assert.False(gmail.FullFetchCalled);
+    }
+
+    [Fact]
+    public async Task SqliteStore_PersistsMetadataAndRejectsClearedScan()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"tidy-mail-{Guid.NewGuid():N}.db");
+        var options = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Mailbox:SqlitePath"] = path
+        }).Build();
+        try
+        {
+            var store = new SqliteMailboxMetadataStore(options);
+            var state = new MailboxScanState { UserId = "user:alice", Status = MailboxScanStatus.Discovering };
+            await store.SaveScanStateAsync(state, CancellationToken.None);
+            Assert.True(await store.TryCompleteScanAsync(state with { Status = MailboxScanStatus.Completed },
+                CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None));
+
+            var reopened = new SqliteMailboxMetadataStore(options);
+            Assert.Equal(MailboxScanStatus.Completed,
+                (await reopened.GetCurrentScanAsync("user:alice", CancellationToken.None))?.Status);
+            Assert.Equal(4, (await reopened.GetMetadataAsync("user:alice", CancellationToken.None)).Count);
+            Assert.Empty(await reopened.GetMetadataAsync("user:bob", CancellationToken.None));
+
+            await reopened.ClearAsync("user:alice", CancellationToken.None);
+            Assert.False(await store.TryCompleteScanAsync(state with { Status = MailboxScanStatus.Completed },
+                CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None));
+            Assert.Empty(await store.GetMetadataAsync("user:alice", CancellationToken.None));
+        }
+        finally
+        {
+            SqliteTestCleanup(path);
+        }
+    }
+
+    private static void SqliteTestCleanup(string path)
+    {
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+        {
+            try { File.Delete(path + suffix); }
+            catch (IOException) { /* SQLite connection pooling may keep the file briefly. */ }
+        }
+    }
+
+    [Fact]
+    public async Task ClearedMailbox_DoesNotResurrectAnInFlightScan()
+    {
+        var store = new MailboxMetadataStore();
+        var state = new MailboxScanState { UserId = "user", Status = MailboxScanStatus.Discovering };
+        await store.SaveScanStateAsync(state, CancellationToken.None);
+        await store.ClearAsync("user", CancellationToken.None);
+
+        var accepted = await store.TryCompleteScanAsync(state with { Status = MailboxScanStatus.Completed },
+            CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None);
+        Assert.False(accepted);
+        Assert.Null(await store.GetCurrentScanAsync("user", CancellationToken.None));
+        Assert.Empty(await store.GetMetadataAsync("user", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task OnlyTheLatestScanCanReplaceMailboxMetadata()
+    {
+        var store = new MailboxMetadataStore();
+        var first = new MailboxScanState { UserId = "user", Status = MailboxScanStatus.Discovering };
+        var second = new MailboxScanState { UserId = "user", Status = MailboxScanStatus.Discovering };
+        await store.SaveScanStateAsync(first, CancellationToken.None);
+        await store.SaveScanStateAsync(second, CancellationToken.None);
+
+        Assert.False(await store.TryCompleteScanAsync(first with { Status = MailboxScanStatus.Completed },
+            CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None));
+        Assert.True(await store.TryCompleteScanAsync(second with { Status = MailboxScanStatus.Completed },
+            CreateMetadata(DateTimeOffset.UtcNow), CancellationToken.None));
+    }
+
+    [Fact]
     public async Task StoreUpdatesOnlySuccessfulMessageIdsAfterActions()
     {
         var store = new MailboxMetadataStore();
@@ -63,6 +160,26 @@ public sealed class MailboxWorkflowServiceTests
         Assert.True(cached.Single(m => m.MessageId == "m1").IsRead);
         Assert.DoesNotContain("INBOX", cached.Single(m => m.MessageId == "m2").Labels);
         Assert.Contains("UNREAD", cached.Single(m => m.MessageId == "m3").Labels);
+    }
+
+    [Fact]
+    public async Task AddLabel_DoesNotArchiveOrRemoveAnyPreviousLabels()
+    {
+        var store = new MailboxMetadataStore();
+        var now = DateTimeOffset.UtcNow;
+        await store.UpsertMetadataAsync("user",
+        [new MailboxMetadata("m1", "t1", "Sender", "sender@example.com", "example.com",
+            "Subject", now, false, ["INBOX", "UNREAD", "Label_Old"], false, 100, now)],
+            CancellationToken.None);
+
+        await store.UpdateAfterActionAsync("user", MailboxLocalAction.AddLabel,
+            ["m1"], "Label_New", CancellationToken.None);
+
+        var result = (await store.GetMetadataAsync("user", CancellationToken.None)).Single();
+        Assert.Contains("INBOX", result.Labels);
+        Assert.Contains("UNREAD", result.Labels);
+        Assert.Contains("Label_Old", result.Labels);
+        Assert.Contains("Label_New", result.Labels);
     }
 
     [Fact]
@@ -137,24 +254,23 @@ public sealed class MailboxWorkflowServiceTests
     }
 
     [Fact]
-    public void UserMailboxKeyProvider_UsesRealClaimsAndFallsBackForPlaceholderGoogleUser()
+    public void UserMailboxKeyProvider_FailsClosedWithoutAuthenticatedGoogleSubject()
     {
         var contextAccessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
         contextAccessor.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim(ClaimTypes.NameIdentifier, "google-user")
         ], "test"));
-
-        var key = new UserMailboxKeyProvider(contextAccessor).GetCurrentUserKey();
-
-        Assert.DoesNotContain("google-user", key);
+        Assert.Throws<UnauthorizedAccessException>(() => new UserMailboxKeyProvider(contextAccessor).GetCurrentUserKey());
 
         contextAccessor.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim(ClaimTypes.NameIdentifier, "real-subject")
         ], "test"));
-
         Assert.Equal("user:real-subject", new UserMailboxKeyProvider(contextAccessor).GetCurrentUserKey());
+
+        contextAccessor.HttpContext = null;
+        Assert.Throws<UnauthorizedAccessException>(() => new UserMailboxKeyProvider(contextAccessor).GetCurrentUserKey());
     }
 
     [Fact]
@@ -176,6 +292,36 @@ public sealed class MailboxWorkflowServiceTests
         new("m3", "t2", "Alerts", "noreply@service.com", "service.com", "Alert", now.AddYears(-2), false, ["INBOX", "UNREAD"], false, 100, now),
         new("m4", "t3", "Human", "person@corp.com", "corp.com", "Meeting", now, false, ["INBOX", "UNREAD"], false, 100, now)
     ];
+
+    private sealed class HistoryGmailClient : IGmailClient
+    {
+        public bool FullFetchCalled { get; private set; }
+        public Task<IReadOnlyList<string>> FetchFromHeadersAsync(CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        public Task<IReadOnlyList<GmailMessageMetadata>> FetchMessageMetadataAsync(CancellationToken cancellationToken)
+        {
+            FullFetchCalled = true;
+            return Task.FromResult<IReadOnlyList<GmailMessageMetadata>>(Array.Empty<GmailMessageMetadata>());
+        }
+        public Task<GmailHistoryDelta?> FetchHistoryDeltaAsync(string startHistoryId, CancellationToken cancellationToken)
+            => Task.FromResult<GmailHistoryDelta?>(new GmailHistoryDelta("110",
+            [new GmailMessageMetadata("m5", "New <new@example.com>", "Hello", DateTimeOffset.UtcNow,
+                true, false, ["INBOX"])], ["m1"]));
+        public Task<IReadOnlyList<GmailLabel>> FetchLabelsAsync(CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<GmailLabel>>(Array.Empty<GmailLabel>());
+        public Task<GmailActionResult> TrashMessagesAsync(IReadOnlyCollection<string> ids, CancellationToken token)
+            => Task.FromResult(GmailActionResult.Success(ids));
+        public Task<GmailActionResult> ArchiveMessagesAsync(IReadOnlyCollection<string> ids, CancellationToken token)
+            => Task.FromResult(GmailActionResult.Success(ids));
+        public Task<GmailActionResult> MarkMessagesReadAsync(IReadOnlyCollection<string> ids, CancellationToken token)
+            => Task.FromResult(GmailActionResult.Success(ids));
+        public Task<GmailActionResult> MarkMessagesUnreadAsync(IReadOnlyCollection<string> ids, CancellationToken token)
+            => Task.FromResult(GmailActionResult.Success(ids));
+        public Task<GmailActionResult> MoveMessagesToLabelAsync(IReadOnlyCollection<string> ids, string label, CancellationToken token)
+            => Task.FromResult(GmailActionResult.Success(ids));
+        public Task<GmailLabel> CreateLabelAsync(string label, CancellationToken token)
+            => Task.FromResult(new GmailLabel(label, label, false));
+    }
 
     private sealed class FailingMetadataGmailClient : IGmailClient
     {

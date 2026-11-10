@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Features;
 
 namespace MailboxCleaner.Web.Application.MailboxScanning;
 
@@ -9,35 +8,24 @@ public interface IUserMailboxKeyProvider
     string GetCurrentUserKey();
 }
 
+/// <summary>Only a validated, authenticated Google subject may identify a mailbox.</summary>
 public sealed class UserMailboxKeyProvider : IUserMailboxKeyProvider
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public UserMailboxKeyProvider(IHttpContextAccessor httpContextAccessor)
-    {
-        _httpContextAccessor = httpContextAccessor;
-    }
+        => _httpContextAccessor = httpContextAccessor;
 
     public string GetCurrentUserKey()
     {
-        var context = _httpContextAccessor.HttpContext;
-        var user = context?.User;
-        var claimValue = user?.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? user?.FindFirstValue(ClaimTypes.Email)
-            ?? user?.Identity?.Name;
-
-        if (!string.IsNullOrWhiteSpace(claimValue) && !claimValue.Equals("google-user", StringComparison.OrdinalIgnoreCase))
+        var user = _httpContextAccessor.HttpContext?.User;
+        var subject = user?.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (user?.Identity?.IsAuthenticated != true || string.IsNullOrWhiteSpace(subject) ||
+            string.Equals(subject, "google-user", StringComparison.OrdinalIgnoreCase))
         {
-            return $"user:{claimValue.Trim().ToLowerInvariant()}";
+            throw new UnauthorizedAccessException("A validated Google account is required to access mailbox data.");
         }
 
-        var sessionId = GetSessionId(context);
-        return string.IsNullOrWhiteSpace(sessionId) ? "anonymous" : $"session:{sessionId}";
-    }
-
-    private static string? GetSessionId(HttpContext? context)
-    {
-        var sessionFeature = context?.Features.Get<ISessionFeature>();
-        return sessionFeature?.Session?.Id;
+        return $"user:{subject.Trim().ToLowerInvariant()}";
     }
 }

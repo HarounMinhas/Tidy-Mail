@@ -1,0 +1,35 @@
+name: .NET build and tests
+
+on:
+  push:
+    branches: [main, codex/implement-tidy-mail-backlog]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore MailboxCleaner.sln
+      - name: Build
+        run: dotnet build MailboxCleaner.sln -c Release --no-restore
+      - name: Run unit and integration-style tests
+        run: dotnet test MailboxCleaner.sln -c Release --no-build --logger "trx;LogFileName=tidy-mail-tests.trx"
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore

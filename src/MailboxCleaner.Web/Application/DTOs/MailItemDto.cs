@@ -10,4 +10,7 @@ public sealed record MailItemDto(
     bool IsRead,
     bool HasAttachment,
     bool IsArchived,
-    string Folder);
+    string Folder,
+    bool IsNewsletterLike = false,
+    bool IsNotificationLike = false,
+    IReadOnlyCollection<string>? LabelIds = null);
