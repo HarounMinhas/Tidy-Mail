@@ -104,6 +104,13 @@
 {
     <div class="alert alert-info"><span class="spinner-border spinner-border-sm me-2"></span>@progressMessage</div>
 }
+@if (!string.IsNullOrWhiteSpace(SuggestedSelectionTitle) && suggestedSelectionCount > 0)
+{
+    <div class="alert alert-info" role="status">
+        <strong>Review: @SuggestedSelectionTitle</strong> — @suggestedSelectionCount messages selected.
+        No action has been chosen or performed. Inspect the selection below and explicitly choose an action if desired.
+    </div>
+}
 @if (!string.IsNullOrWhiteSpace(successMessage))
 {
     <div class="alert alert-success">@successMessage</div>
@@ -291,6 +298,8 @@ else if (!isLoading)
     private bool acknowledgesRisk;
     [Parameter] public EventCallback OnMailboxChanged { get; set; }
     [Parameter] public IReadOnlyCollection<string> InitialSelectedMessageIds { get; set; } = Array.Empty<string>();
+    [Parameter] public string? SuggestedSelectionTitle { get; set; }
+    private int suggestedSelectionCount;
     private string selectedDestinationLabelId = "INBOX";
     private string newFolderName = string.Empty;
     private List<MailboxCleaner.Web.Infrastructure.Google.GmailLabel> existingLabels = new();
@@ -331,7 +340,11 @@ else if (!isLoading)
             var availableIds = allMessages.Select(message => message.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var messageId in InitialSelectedMessageIds)
                 if (availableIds.Contains(messageId)) engine.ToggleMessageSelection(messageId, true);
-            if (engine.SelectedMessageIds.Count > 0) OpenActionPane(MailBulkAction.Archive);
+            suggestedSelectionCount = engine.SelectedMessageIds.Count;
+            // Suggestions only select messages for review. An action requires a separate click and confirmation.
+            foreach (var sender in allMessages.Where(m => engine.SelectedMessageIds.Contains(m.Id))
+                .Select(m => m.SenderEmail).Distinct(StringComparer.OrdinalIgnoreCase).Take(5))
+                engine.ToggleSenderExpansion(sender);
         }
     }
 
@@ -432,6 +445,7 @@ else if (!isLoading)
     private void ClearSelection()
     {
         engine.ClearSelection();
+        suggestedSelectionCount = 0;
         InvalidatePreview();
     }
 
