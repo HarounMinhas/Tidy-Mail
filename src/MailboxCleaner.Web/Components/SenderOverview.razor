@@ -157,10 +157,14 @@
 else if (!isLoading)
 {
     <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
-        <span class="text-muted">Selected messages: @engine.SelectedMessageIds.Count. Selecting a sender selects only its currently visible messages.</span>
+        <span class="text-muted">Selected messages: @engine.SelectedMessageIds.Count (@HiddenSelectedCount hidden by the current filters). Selecting a sender selects only its currently visible messages.</span>
         <button type="button" class="btn btn-sm btn-outline-primary" disabled="@actionInProgress" @onclick="SelectVisible">Select visible</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(actionInProgress || engine.SelectedMessageIds.Count == 0)" @onclick="ClearSelection">Clear selection</button>
     </div>
+    @if (HiddenSelectedCount > 0)
+    {
+        <div class="alert alert-warning">You have @HiddenSelectedCount selected messages hidden by active filters. Any bulk action includes these messages unless you clear the selection.</div>
+    }
     <div class="row g-2 mb-3"><div class="col-md-3"><select class="form-select" @bind="SortField"><option value="Count">Message count</option><option value="Name">Sender name</option><option value="Email">Email</option><option value="Newest">Newest message</option><option value="Oldest">Oldest message</option></select></div><div class="col-md-2"><select class="form-select" @bind="SortDirection"><option value="Desc">Descending</option><option value="Asc">Ascending</option></select></div></div>
 
     @foreach (var sender in filteredSenders)
@@ -238,6 +242,14 @@ else if (!isLoading)
         <div class="card-header">Confirm action</div>
         <div class="card-body">
             <p>You are about to apply <strong>@pendingAction</strong> to <strong>@actionPreview?.SelectedCount</strong> selected messages.</p>
+            @if (HiddenSelectedCount > 0)
+            {
+                <div class="alert alert-warning">This action includes @HiddenSelectedCount messages not currently visible under your filters.</div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="ackHidden" @bind="acknowledgesHiddenSelection" />
+                    <label class="form-check-label" for="ackHidden">Include these hidden selected messages in the action.</label>
+                </div>
+            }
             @if (pendingAction == MailBulkAction.Delete)
             {
                 <div class="alert alert-warning">The selected messages will be moved to Gmail Trash. Check the sender and subject examples below before confirming.</div>
@@ -322,6 +334,7 @@ else if (!isLoading)
     private IReadOnlyCollection<MailItemDto> allMessages = Array.Empty<MailItemDto>();
     private IReadOnlyCollection<MailItemDto> filteredMessages = Array.Empty<MailItemDto>();
     private Dictionary<string, List<MailItemDto>> filteredBySender = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> visibleMessageIds = new(StringComparer.OrdinalIgnoreCase);
     private List<string> querySuggestions = new();
 
     private string messageQuery = string.Empty;
@@ -340,6 +353,7 @@ else if (!isLoading)
     private ActionPreview? actionPreview;
     private List<MailItemDto> previewMessages = new();
     private bool acknowledgesRisk;
+    private bool acknowledgesHiddenSelection;
     [Parameter] public EventCallback OnMailboxChanged { get; set; }
     [Parameter] public IReadOnlyCollection<string> InitialSelectedMessageIds { get; set; } = Array.Empty<string>();
     [Parameter] public string? SuggestedSelectionTitle { get; set; }
@@ -370,12 +384,15 @@ else if (!isLoading)
         .OrderBy(label => label.Name)
         .ToList();
 
+    private int HiddenSelectedCount => engine.CountSelectedOutside(visibleMessageIds);
+
     private bool RequiresExtraConfirmation => pendingAction == MailBulkAction.Delete && previewMessages.Any(message =>
         !message.IsRead || message.ReceivedAt >= DateTimeOffset.UtcNow.AddDays(-30)
         || message.LabelIds?.Contains("STARRED", StringComparer.OrdinalIgnoreCase) == true
         || message.LabelIds?.Contains("IMPORTANT", StringComparer.OrdinalIgnoreCase) == true);
 
     private bool CanConfirmAction => !actionInProgress
+        && (HiddenSelectedCount == 0 || acknowledgesHiddenSelection)
         && (!RequiresExtraConfirmation || acknowledgesRisk)
         && pendingAction.HasValue
         && actionPreview is not null
@@ -463,6 +480,9 @@ else if (!isLoading)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
         var visibleSenderEmails = filteredBySender.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         filteredSenders = SortSenders(senderResults.Where(sender => visibleSenderEmails.Contains(sender.Email))).ToList();
+        var renderedSenders = filteredSenders.Select(sender => sender.Email).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        visibleMessageIds = filteredMessages.Where(m => renderedSenders.Contains(m.SenderEmail))
+            .Select(m => m.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         querySuggestions = engine.AutocompleteSuggestions(messageQuery).ToList();
     }
 
@@ -517,6 +537,7 @@ else if (!isLoading)
     private void OpenActionPane(MailBulkAction action)
     {
         acknowledgesRisk = false;
+        acknowledgesHiddenSelection = false;
         pendingAction = action;
         showActionPane = true;
         actionPreview = engine.PreviewAction(action, selectedDestinationLabelId);
@@ -616,6 +637,7 @@ else if (!isLoading)
         actionPreview = null;
         previewMessages.Clear();
         acknowledgesRisk = false;
+        acknowledgesHiddenSelection = false;
         newFolderName = string.Empty;
     }
 
