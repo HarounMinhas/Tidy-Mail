@@ -39,6 +39,7 @@ else
                             <strong>@suggestion.Title</strong> <span class="badge text-bg-secondary">@suggestion.RiskLevel</span>
                             <div>@suggestion.Explanation</div>
                             <small>@suggestion.MessageCount messages · Suggested action: @suggestion.SuggestedAction</small>
+                            <div><button type="button" class="btn btn-sm btn-outline-primary mt-1" @onclick="() => ReviewSuggestion(suggestion)">Review these messages</button></div>
                         </div>
                     }
                 </div>
@@ -57,13 +58,21 @@ else
         </div>
     </div>
 
-    <SenderOverview OnMailboxChanged="RefreshDashboardAsync" />
+    <SenderOverview @key="suggestionVersion" InitialSelectedMessageIds="selectedSuggestionIds" OnMailboxChanged="RefreshDashboardAsync" />
 }
 
 @code {
     [Parameter] public string UserId { get; set; } = "session";
     private MailboxStats? stats;
     private IReadOnlyList<CleanupSuggestion> suggestions = Array.Empty<CleanupSuggestion>();
+    private IReadOnlyCollection<string> selectedSuggestionIds = Array.Empty<string>();
+    private int suggestionVersion;
+
+    private void ReviewSuggestion(CleanupSuggestion suggestion)
+    {
+        selectedSuggestionIds = suggestion.FilterCriteria.MessageIds;
+        suggestionVersion++;
+    }
 
     protected override Task OnInitializedAsync() => RefreshDashboardAsync();
 
