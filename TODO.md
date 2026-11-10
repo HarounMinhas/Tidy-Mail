@@ -2,19 +2,36 @@
 
 > **Stand van zaken:** 11 november 2026 (oorspronkelijke audit: 27 oktober 2026)  
 > **Repository:** [HarounMinhas/Tidy-Mail](https://github.com/HarounMinhas/Tidy-Mail)  
-> **Gecontroleerde basis:** `main`, commit `98983379b7cc9f8e65bcfac96ecb4f6f58e62e59` (26 juni 2026).  
+> **Gecontroleerde basis:** `main`, mergecommit `8eb17491be3546bf22937bd8bd28f2d5f81ff77e` (11 november 2026); eerdere audit: juni-commit `9898337`.  
 > **Bronnen:** actuele code, README, bestaande tests en eerder gesloten GitHub-issues/PR's.  
 > **Belangrijk:** dit is een *statische code-audit*. Er zijn geen runtime-, echte Gmail- of browser-E2E-tests uitgevoerd tijdens deze inventarisatie. 'Aanwezig in code' betekent niet automatisch 'productieklaar'.
 
 Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en eventueel publiceren van alle huidige Tidy Mail-functionaliteit**. Nieuwe productideeën staan apart onder *Optionele uitbreidingen*; ze zijn geen verplichte voorwaarden om de bestaande MVP volledig werkend te maken.
 
-## Implementatievoortgang — 10 november 2026
+## Post-merge audit — 11 november 2026
 
-**Werkbranch:** [codex/implement-tidy-mail-backlog](https://github.com/HarounMinhas/Tidy-Mail/tree/codex/implement-tidy-mail-backlog)  
-**Concept-PR:** [#12 — implementatie en code-review](https://github.com/HarounMinhas/Tidy-Mail/pull/12)  
-**Werkwijze:** alle codewijzigingen blijven op de werkbranch tot CI en aanvullende review zijn afgerond. Voor een taak geldt **code aanwezig ≠ functioneel afgetest**. Vink een volledige taak pas af na de *Definition of Done* onderaan.
+**PR #12 is op 11 november 2026 naar main gemergd**: [mergecommit 8eb1749](https://github.com/HarounMinhas/Tidy-Mail/commit/8eb17491be3546bf22937bd8bd28f2d5f81ff77e). De laatste PR-CI-run had **34/34 geslaagde tests**. De gemergde code is in de daaropvolgende statische review opnieuw gecontroleerd.
 
-| Taak | Codevoortgang op werkbranch | Wat nog nodig is om volledig af te vinken |
+**[Lees de volledige code-review met bestandsregels, risico's en functionele testmatrix](CODE_REVIEW_2026-11-11.md).** Tot er echte OAuth/Gmail-/browsertests zijn uitgevoerd, is niet aangetoond dat alle functionaliteit in de praktijk werkt.
+
+**Nieuwe P1-releaseblokkers uit de review, nog open:**
+
+- [ ] **RV-01 / TM-015 / TM-023 — Trash/cache:** haal bevestigde Trash-berichten uit de actieve mailboxstatistieken en opruimsuggesties. Test direct na bulkactie én na Gmail-sync.
+- [ ] **RV-02 / TM-009/010 — Rescan-herstel:** bij geannuleerde/mislukte rescan de laatste geslaagde scan beschikbaar houden in het dashboard, met foutmelding en retry.
+- [ ] **RV-03 / TM-008 — Gmail-resultaten per ID:** onderscheid batchacceptatie van geverifieerde individuele toestand, vooral bij gemengde successen, netwerkfouten en retries.
+- [ ] **RV-04 / TM-023/034/035/038 — Echte functionele verificatie:** browser-E2E en alle Gmail-acties met aparte testaccounts, twee gelijktijdige gebruikers, tokenverval, logout, herstel en veilig accountwisselen.
+
+**Andere code-/releasepunten:** logout via GET dat ook lokale gegevens verwijdert (RV-05), ontbrekende productie-errorroute (RV-06), SENT-labelprioriteit (RV-07), quota/performance bij attachments en partial-failure-reconciliatie (RV-08/09), privacy en opslagbeveiliging (RV-10). Zie de review voor exacte codeverwijzingen, scenario's en acceptatiecriteria.
+
+**Belangrijk:** code en unit tests zijn niet hetzelfde als live functionaliteitsverificatie. De hoofd-`[ ]`-taken blijven open totdat die acceptatietests geslaagd zijn. Geen echte Gmail-berichten gewijzigd tijdens de review.
+
+## Implementatievoortgang — 10 november 2026 (historische voortgang, inmiddels in main)
+
+**Oorspronkelijke werkbranch:** [codex/implement-tidy-mail-backlog](https://github.com/HarounMinhas/Tidy-Mail/tree/codex/implement-tidy-mail-backlog) — wijzigingen nu gemergd naar `main`  
+**Gemergde PR:** [#12 — implementatie en code-review](https://github.com/HarounMinhas/Tidy-Mail/pull/12)  
+**Werkwijze na merge:** de implementatie staat op `main`. Een taak is pas voltooid na acceptatietests: **code aanwezig ≠ functioneel afgetest**. Zie de post-merge review hierboven.
+
+| Taak | Codevoortgang in main | Wat nog nodig is om volledig af te vinken |
 | --- | --- | --- |
 | TM-001 | InteractiveServer en Blazor script toegevoegd | Echte browser-/SignalR-test |
 | TM-002 | Fail-closed Google subject, authstate vanuit Blazor | Twee browsers / accountisolatie E2E en alle routes nalopen |
@@ -27,7 +44,7 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 | TM-009/010 | Scanvoortgang en cancellogica toegevoegd | Grote-mailbox browser-/canceltest |
 | TM-011/012/013 | Transient retry, nul-berichten-cache, expliciete force-refresh | API-foutmatrixtests |
 | TM-015/016/017 | Dashboard-updates na acties, labelnamen en systeemprecedentie | Echte Gmail label/Trash test |
-| TM-019/020/022 | Extra filters, klikbare suggesties, voorgegroepeerde renders | **Functionele fout:** `Preview selected` opent momenteel automatisch een Archive-preview; suggestieactie correct mappen, daarna browser-UX/performance controleren |
+| TM-019/020/022 | Extra filters, klikbare suggesties, voorgegroepeerde renders; onbedoelde Archive-preview is gecorrigeerd | Browser-E2E en grootschalige UI-performance ontbreken |
 | TM-024/025 | Geselecteerde-ID labelreads en extra Trash waarschuwing | Grote selectie / hersteltest |
 | TM-027 | Durable SQLite metadata, atomische scanopslag, persistentietest | Host/volume, retentie, backup/multi-instance aanpak |
 | TM-028 | Google-tokens versleuteld in SQLite + blijvende key ring | Verificatie na echte herstart en secure key management |
@@ -41,7 +58,7 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 
 ## Aanvulling - belangrijke functionele verbeteringen (11 november 2026)
 
-**Op werkbranch / concept-PR [#12](https://github.com/HarounMinhas/Tidy-Mail/pull/12), nog niet in main.** De .NET 8-build en unit-/fake-Gmailtests zijn geslaagd. Echte Gmail- en browser-E2E-tests zijn niet uitgevoerd; code aanwezig betekent dus nog niet volledig afgevinkt.
+**Inmiddels op `main` via gemergde PR [#12](https://github.com/HarounMinhas/Tidy-Mail/pull/12).** De .NET 8-build en unit-/fake-Gmailtests zijn geslaagd. Echte Gmail- en browser-E2E-tests zijn niet uitgevoerd; code aanwezig betekent dus nog niet volledig afgevinkt.
 
 | Taak | Code geimplementeerd | Wat nog nodig is |
 | --- | --- | --- |
@@ -62,7 +79,7 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 - [ ] Browser-E2E voor suggereren -> selecteren -> actiepreview -> bevestigen -> resultaat.
 - [ ] Grote mailboxen, rate limits en performance testen voor publieke release.
 
-**Bewust niet gedaan:** geen echte e-mails gewijzigd; main niet aangepast en de PR blijft draft.
+**Bewust niet gedaan tijdens deze audit:** geen echte e-mails gewijzigd en geen Gmail-OAuth- of browser-E2E-tests uitgevoerd. De implementatie is gemergd naar `main`.
 
 ## Legenda en werkafspraken
 
@@ -80,17 +97,17 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 | --- | --- | --- |
 | Inloggen / uitloggen met Google OAuth | Ja | Correcte claimvalidatie, circuit- en sessiegedrag, echte login/logout-test |
 | Gmail metadata scannen, zonder berichtinhoud | Ja | Werkende UI, echte progressie, herstel na fout, quota-/performancetest |
-| Lokale scan-cache per gebruiker | Ja, SQLite op werkbranch | Multiuser-E2E, back-ups en multi-instance aanpak |
+| Lokale scan-cache per gebruiker | Ja, SQLite op main | Multiuser-E2E, back-ups en multi-instance aanpak |
 | Dashboardstatistieken | Ja | Herberekenen na Gmail-acties en rescan; correctheid bij randgevallen |
 | Afzender- en domeingroepering | Ja | Controle op grote mailboxen en correcte weergave |
 | Zoeken, sorteren en basisfilters | Ja | Veilige selectie onder filters, extra bestaande servicefilters in UI beschikbaar maken |
-| Nieuwsbrief-/noreply-/cleanup-suggesties | Ja, op werkbranch review-selectie zonder standaard actie | Browser-E2E blijft nodig |
+| Nieuwsbrief-/noreply-/cleanup-suggesties | Ja, op main review-selectie zonder standaard actie | Browser-E2E blijft nodig |
 | Trash, archive, read/unread, move/create label | Ja | End-to-end Gmail-tests, echte resultaten, herstel na partiële fouten |
-| Bulkactiepreview met risico en voorbeeldberichten | In UI op werkbranch aanwezig | Browser-/Gmail-validatie en partial-result UX-test |
+| Bulkactiepreview met risico en voorbeeldberichten | In UI op main aanwezig | Browser-/Gmail-validatie en partial-result UX-test |
 | Bijlagenherkenning | Logica aanwezig | Werking corrigeren/valideren met Gmail metadata-API |
 | Automatische tests en benchmarks | Ja, deels | CI, browser-/auth-/integratietests en echte schaalmetingen |
-| Incremental Gmail sync | Ja op werkbranch | Live Gmail History API en verlopen cursor testen |
-| Blijvende cache over herstart / meerdere apparaten | SQLite op werkbranch | Back-ups, retentie en multi-instance deployment nog vereist |
+| Incremental Gmail sync | Ja op main | Live Gmail History API en verlopen cursor testen |
+| Blijvende cache over herstart / meerdere apparaten | SQLite op main | Back-ups, retentie en multi-instance deployment nog vereist |
 | Productiedeployment | Niet aangetoond | Secrets, Google OAuth-configuratie/verificatie, monitoring en smoke tests |
 
 **Uitgangspunt:** bouw niet opnieuw wat al bestaat; herstel eerst de integratie van de bestaande services en valideer de complete gebruikersflow.
@@ -100,7 +117,8 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 ### TM-001 [P0] Blazor-interactiviteit daadwerkelijk inschakelen
 
 - [x] Configureer een interactieve server-render mode voor `Routes` (en waar nodig `HeadOutlet`) in `src/MailboxCleaner.Web/Components/App.razor`.
-- [x] Voeg het benodigde Blazor-clientscript toe en bevestig dat een SignalR-circuit kan opstarten.
+- [x] Voeg het benodigde Blazor-clientscript toe.
+- [ ] Bevestig in een echte browser dat het SignalR-circuit en Blazor-eventhandlers werken.
 - [ ] Test `Start scan`, `Cancel`, filterinvoer, afzender-checkboxes, `Confirm` en `Rescan` in een browser.
 - **Acceptatie:** alle zichtbare Blazor-eventhandlers werken, zonder browserconsolefouten of onbedoelde volledige paginaverversing.
 - **Bestanden:** `Components/App.razor`, `Components/Routes.razor`, `Program.cs`.
@@ -117,12 +135,12 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 
 ### TM-003 [P0/P1] Tokenbeheer compatibel maken met Blazor Server
 
-- [ ] Vermijd het rechtstreeks vasthouden van `HttpContext.Session` in services die tijdens interactieve circuits worden aangeroepen; `SessionTokenStore` verwacht nu een beschikbare HTTP-context.
+- [ ] Vermijd het rechtstreeks vasthouden van `HttpContext.Session` in services die tijdens interactieve circuits worden aangeroepen; `SqliteTokenStore` vervangt de HTTP-sessieopslag, maar circuit-/reconnectgedrag moet nog worden geverifieerd.
 - [ ] Ontwerp een veilige, aan account-ID gekoppelde tokenopslag en een gecontroleerde manier om tokens in Gmail-services te gebruiken.
 - [ ] Controleer access-tokenverversing, verlopen of ingetrokken refresh-tokens, sessieverlies, reconnect en logout.
 - [ ] Zorg dat een cookie zonder bruikbaar Gmail-token zichtbaar naar opnieuw aanmelden leidt en niet naar een misleidend leeg dashboard.
 - **Acceptatie:** een ingelogde gebruiker kan na navigatie/reconnect/scannen Gmail blijven gebruiken of krijgt een veilige, duidelijke opnieuw-aanmelden-flow.
-- **Bestanden:** `Infrastructure/Security/SessionTokenStore.cs`, `Infrastructure/Google/Gmail/GoogleUserCredentialFactory.cs`, `Auth/GoogleAuthController.cs`.
+- **Bestanden:** `Infrastructure/Security/SqliteTokenStore.cs`, `Infrastructure/Google/Gmail/GoogleUserCredentialFactory.cs`, `Auth/GoogleAuthController.cs`.
 
 ### TM-004 [P0] Veilig selecteren onder filters
 
@@ -149,7 +167,7 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 - [x] Synchroniseer `MailboxMetadataStore.HasMessageAsync` met schrijvende cache-operaties; de huidige `Dictionary.ContainsKey` leest zonder lock.
 - [x] Voorkom dat een lopende scan na logout of `ClearAsync` de cache van die gebruiker opnieuw vult.
 - [x] Voorkom dat twee scans of een scan en een bulkactie elkaars resultaat overschrijven; gebruik per-account exclusie/generaties of versionering.
-- [x] Bewaar de vorige complete scan totdat de nieuwe volledig en succesvol is en wissel daarna atomair.
+- [ ] Bewaar de vorige complete scan **én de bruikbare dashboardstatus** wanneer een rescan faalt of wordt geannuleerd. Metadata blijven behouden, maar RV-02 toont dat de huidige UI de eerdere scan niet meer toegankelijk maakt.
 - **Acceptatie:** gelijktijdige scans, bulkacties en logout veroorzaken geen onterechte cache-updates of terugkeer van gewiste metadata.
 - **Bestanden:** `Application/MailboxScanning/MailboxMetadataStore.cs`, `MailboxScanService.cs`, `Auth/GoogleAuthController.cs`.
 
