@@ -26,9 +26,12 @@ public sealed record BulkActionPreview(
 
 public sealed record AffectedSenderPreview(string SenderName, string SenderEmail, int Count);
 
-public sealed record GmailBulkActionResult(int TotalRequested, int TotalSucceeded, int TotalFailed, IReadOnlyList<string> FailedMessageIds, IReadOnlyList<string> ErrorMessages)
+public sealed record GmailBulkActionResult(int TotalRequested, int TotalSucceeded, int TotalFailed, IReadOnlyList<string> FailedMessageIds, IReadOnlyList<string> ErrorMessages,
+    IReadOnlyList<string>? UnknownMessageIds = null, string? TargetLabelId = null, bool CacheUpdateFailed = false)
 {
-    public bool IsPartialSuccess => TotalSucceeded > 0 && TotalFailed > 0;
+    public int TotalUnknown => UnknownMessageIds?.Count ?? 0;
+    public bool RequiresReconciliation => TotalUnknown > 0 || TotalFailed > 0 || CacheUpdateFailed;
+    public bool IsPartialSuccess => TotalSucceeded > 0 && (TotalFailed > 0 || TotalUnknown > 0);
     public static GmailBulkActionResult Empty { get; } = new(0, 0, 0, Array.Empty<string>(), Array.Empty<string>());
     public static GmailBulkActionResult Success(IReadOnlyCollection<string> ids) => new(ids.Count, ids.Count, 0, Array.Empty<string>(), Array.Empty<string>());
 }
