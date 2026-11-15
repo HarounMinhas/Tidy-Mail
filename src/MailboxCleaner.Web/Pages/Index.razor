@@ -1,11 +1,32 @@
 @page "/"
+@inject IWebHostEnvironment HostEnvironment
+@inject IConfiguration Configuration
 
 <div class="text-center">
     <h1 class="display-5">Tidy Mail</h1>
     <p class="lead">Get a sender overview for your Gmail inbox.</p>
+    @if (IsDemo)
+    {
+        <div class="alert alert-warning" role="status">
+            <strong>DEMO MODE — synthetic data only.</strong>
+            No Google account, OAuth token or real email is used. Changes are temporary and reset when the app restarts.
+        </div>
+    }
 
     <div class="d-flex justify-content-center gap-2">
-        <a class="btn btn-primary" href="/auth/login">Login with Google</a>
+        @if (IsDemo)
+        {
+            <a class="btn btn-primary" href="/demo/login?account=alice">Open demo Alice</a>
+            <a class="btn btn-outline-primary" href="/demo/login?account=bob">Open demo Bob</a>
+        }
+        else
+        {
+            <a class="btn btn-primary" href="/auth/login">Login with Google</a>
+        }
         <a class="btn btn-outline-secondary" href="/overview">Go to Overview</a>
     </div>
 </div>
+
+@code {
+    private bool IsDemo => HostEnvironment.IsDevelopment() && Configuration.GetValue<bool>("Mailbox:DemoMode");
+}
