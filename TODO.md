@@ -18,12 +18,12 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 - [x] **DMT-04 — Productieveiligheid:** alleen expliciete Development; andere omgevingen weigeren opstarten, Google OAuth-routes zijn in demo uitgeschakeld, demo-cookies en sleutelring zijn apart, lokale loopback-login.
 - [x] **DMT-05 — Integratietests in .NET:** scan, statistieken, suggesties, actie-uitkomsten, incrementele geschiedenis, foutinjectie en accountisolatie via echte services met dummy `IGmailClient`.
 - [x] **DMT-06 — Browser-E2E-infrastructuur:** Chromium/Playwright-test en eigen GitHub Actions-job voor echte Blazor Server-interactie (resultaat per workflow controleren).
-- [ ] **DMT-07 — CI-groen en browserflow bewezen:** pas afvinken wanneer de laatste PR-run zowel .NET als Playwright groen toont.
+- [x] **DMT-07 — CI-groen en browserflow bewezen:** [GitHub Actions #43775871613](https://github.com/HarounMinhas/Tidy-Mail/actions/runs/43775871613) bevestigt 41/41 .NET-tests, een echte Chromium/Blazor-browserflow en de Production-fail-closed guard.
 - [ ] **DMT-08 — Echte Gmail-integratie:** OAuth en Gmail op disposable testaccounts blijven apart vereist; de dummy alleen bewijst geen externe Gmail-semantiek.
 
-**Implementatie en stappenplan:** [docs/DEMO_MAILBOX_TESTING.md](docs/DEMO_MAILBOX_TESTING.md). [Werk-PR #13](https://github.com/HarounMinhas/Tidy-Mail/pull/13) bevat de nieuwe tests en demo, tot merge niet in `main`.
+**Implementatie en stappenplan:** [docs/DEMO_MAILBOX_TESTING.md](docs/DEMO_MAILBOX_TESTING.md). [PR #13](https://github.com/HarounMinhas/Tidy-Mail/pull/13) is na geslaagde tests naar `main` gemergd: [commit 4581c78](https://github.com/HarounMinhas/Tidy-Mail/commit/4581c78954e87ae9f43b6a4905aa2a13ac8575b7).
 
-**Eerder gevonden fouten in dezelfde PR:**
+**Eerder gevonden fouten nu in `main` gecorrigeerd:**
 
 - [x] **RV-01 (code):** Trash verwijdert bevestigde berichten direct uit de actieve geheugen- en SQLite-cache. Unit-/demo-regressietest; echte Gmail-verificatie blijft open.
 - [x] **RV-02 (code):** mislukte/geannuleerde rescan bewaart een eerdere succesvolle status, dashboarddata en history-ID, met foutmelding en retry. Demo-foutinjectietest; browser-/Gmail-verificatie blijft open.
@@ -36,8 +36,8 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 
 **Nieuwe P1-releaseblokkers uit de review, nog open:**
 
-- [ ] **RV-01 / TM-015 / TM-023 — Trash/cache:** codefix en dummy-test in PR #13; nog echte Gmail- en browserverificatie na bulkactie én sync.
-- [ ] **RV-02 / TM-009/010 — Rescan-herstel:** codefix en dummy-foutinjectietest in PR #13; nog browser-/Gmail-controle bij falen en annuleren.
+- [ ] **RV-01 / TM-015 / TM-023 — Trash/cache:** codefix in `main`; dummy-browserflow en echte SQLite-regressietest geslaagd; nog echte Gmail-verificatie vereist.
+- [ ] **RV-02 / TM-009/010 — Rescan-herstel:** codefix in `main` en dummy-foutinjectietest geslaagd; nog echte Gmail-/browsercontrole bij falen en annuleren.
 - [ ] **RV-03 / TM-008 — Gmail-resultaten per ID:** onderscheid batchacceptatie van geverifieerde individuele toestand, vooral bij gemengde successen, netwerkfouten en retries.
 - [ ] **RV-04 / TM-023/034/035/038 — Echte functionele verificatie:** browser-E2E en alle Gmail-acties met aparte testaccounts, twee gelijktijdige gebruikers, tokenverval, logout, herstel en veilig accountwisselen.
 
