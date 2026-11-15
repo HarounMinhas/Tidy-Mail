@@ -47,8 +47,11 @@ public sealed class DemoGmailClient : IGmailClient
         var mailbox = Mailbox;
         List<GmailMessageMetadata> messages;
         lock (mailbox.SyncRoot)
+        {
+            mailbox.ThrowIfSyncFailureRequested();
             messages = mailbox.Messages.Values.Where(IsVisible)
                 .OrderByDescending(message => message.ReceivedAt).ToList();
+        }
 
         progress?.Report(new GmailScanProgress(1, messages.Count, 0, false));
         progress?.Report(new GmailScanProgress(1, messages.Count, 0, true));
@@ -90,6 +93,7 @@ public sealed class DemoGmailClient : IGmailClient
         var mailbox = Mailbox;
         lock (mailbox.SyncRoot)
         {
+            mailbox.ThrowIfSyncFailureRequested();
             if (fromRevision < 1_000 || fromRevision > mailbox.Revision)
                 return Task.FromResult<GmailHistoryDelta?>(null);
 
