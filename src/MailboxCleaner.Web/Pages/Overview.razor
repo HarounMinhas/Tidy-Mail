@@ -22,6 +22,13 @@
     }
     else
     {
+        @if (!string.IsNullOrWhiteSpace(scanState?.ErrorMessage))
+        {
+            <div class="alert alert-warning" role="status">
+                The latest rescan did not complete: @scanState.ErrorMessage. Showing the last successful mailbox snapshot.
+                <button class="btn btn-sm btn-outline-primary ms-2" @onclick="() => showScan = true">Retry scan</button>
+            </div>
+        }
         @if (scanState is not null && MetadataStore.IsScanStale(scanState, TimeSpan.FromHours(12)))
         {
             <div class="alert alert-warning d-flex justify-content-between align-items-center">
