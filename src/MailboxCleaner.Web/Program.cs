@@ -35,7 +35,8 @@ builder.Services.AddDataProtection()
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
-        options.Cookie.Name = demoEnabled ? "TidyMail.Demo.Auth" : "TidyMail.Auth";
+        // Keep the existing real-cookie name unchanged for backward compatibility.
+        if (demoEnabled) options.Cookie.Name = "TidyMail.Demo.Auth";
         options.LoginPath = "/auth/login";
         options.LogoutPath = "/auth/logout";
     });
