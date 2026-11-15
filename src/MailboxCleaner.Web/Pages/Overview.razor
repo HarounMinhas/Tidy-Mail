@@ -13,7 +13,7 @@
     {
         <div class="alert alert-warning d-flex justify-content-between align-items-center" role="status">
             <span><strong>Demo mailbox</strong> — fake Gmail data, no external writes. Account: @userId.</span>
-            <a href="/demo/logout" class="btn btn-sm btn-outline-secondary">Leave demo</a>
+            <a href="/demo/logout" data-enhance-nav="false" class="btn btn-sm btn-outline-secondary">Leave demo</a>
         </div>
     }
     @if (showScan)
@@ -44,7 +44,7 @@ else
     <div class="alert alert-info">
         @if (IsDemo)
         {
-            <span>Choose <a href="/demo/login?account=alice">demo Alice</a> or <a href="/demo/login?account=bob">demo Bob</a> to test the mailbox.</span>
+            <span>Choose <a href="/demo/login?account=alice" data-enhance-nav="false">demo Alice</a> or <a href="/demo/login?account=bob" data-enhance-nav="false">demo Bob</a> to test the mailbox.</span>
         }
         else
         {
