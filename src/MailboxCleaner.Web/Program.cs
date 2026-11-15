@@ -25,16 +25,17 @@ if (string.IsNullOrWhiteSpace(keyDirectory))
 {
     var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
     if (string.IsNullOrWhiteSpace(localData)) localData = AppContext.BaseDirectory;
-    keyDirectory = Path.Combine(localData, "TidyMail", "keys");
+    keyDirectory = Path.Combine(localData, "TidyMail", demoEnabled ? "demo-keys" : "keys");
 }
 Directory.CreateDirectory(keyDirectory);
 builder.Services.AddDataProtection()
-    .SetApplicationName("TidyMail")
+    .SetApplicationName(demoEnabled ? "TidyMail.Demo" : "TidyMail")
     .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
+        options.Cookie.Name = demoEnabled ? "TidyMail.Demo.Auth" : "TidyMail.Auth";
         options.LoginPath = "/auth/login";
         options.LogoutPath = "/auth/logout";
     });
@@ -97,6 +98,20 @@ app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
+
+// In local demo mode, never expose a path that could initiate real Google OAuth.
+if (demoEnabled)
+{
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/auth"))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+        await next();
+    });
+}
 
 app.MapControllers();
 if (demoEnabled)
