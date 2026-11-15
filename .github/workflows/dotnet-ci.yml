@@ -37,7 +37,8 @@ jobs:
   dummy-mailbox-browser:
     name: Playwright demo mailbox (no Google)
     needs: build-and-test
-    runs-on: ubuntu-latest
+    # Playwright Chromium currently lacks an ubuntu-26.04 browser build.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Checkout
