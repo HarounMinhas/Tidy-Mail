@@ -6,11 +6,17 @@ using MailboxCleaner.Web.Application.MailboxStats;
 using MailboxCleaner.Web.Infrastructure.Google;
 using MailboxCleaner.Web.Infrastructure.Security;
 using MailboxCleaner.Web.Infrastructure.Google.Gmail;
+using MailboxCleaner.Web.Infrastructure.Demo;
 using MailboxCleaner.Web.Components;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Never allow configuration alone to enable simulated Gmail on a deployed server.
+var demoEnabled = builder.Configuration.GetValue<bool>("Mailbox:DemoMode");
+if (demoEnabled && !builder.Environment.IsDevelopment())
+    throw new InvalidOperationException("Mailbox:DemoMode is allowed only in Development.");
 
 builder.Services.Configure<GoogleOAuthOptions>(builder.Configuration.GetSection("Google"));
 
@@ -49,11 +55,21 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddControllers();
 
-builder.Services.AddScoped<ITokenStore, SqliteTokenStore>();
+if (demoEnabled)
+{
+    builder.Services.AddSingleton<DemoMailboxStore>();
+    builder.Services.AddSingleton<IMailboxMetadataStore, MailboxMetadataStore>();
+    builder.Services.AddScoped<ITokenStore, DemoTokenStore>();
+    builder.Services.AddScoped<IGmailClient, DemoGmailClient>();
+}
+else
+{
+    builder.Services.AddSingleton<IMailboxMetadataStore, SqliteMailboxMetadataStore>();
+    builder.Services.AddScoped<ITokenStore, SqliteTokenStore>();
+    builder.Services.AddScoped<IGmailClient, GmailClient>();
+}
 builder.Services.AddScoped<IGoogleOAuthService, GoogleOAuthService>();
 builder.Services.AddScoped<IGmailCredentialFactory, GoogleUserCredentialFactory>();
-builder.Services.AddScoped<IGmailClient, GmailClient>();
-builder.Services.AddSingleton<IMailboxMetadataStore, SqliteMailboxMetadataStore>();
 builder.Services.AddSingleton<MailboxOperationCoordinator>();
 builder.Services.AddScoped<IUserMailboxKeyProvider, UserMailboxKeyProvider>();
 builder.Services.AddScoped<MailboxUserContext>();
@@ -83,6 +99,8 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapControllers();
+if (demoEnabled)
+    app.MapDemoAuthEndpoints();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
