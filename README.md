@@ -2,6 +2,22 @@
 
 Tidy Mail is a .NET 8 Blazor Server Gmail cleanup assistant for people with chaotic, overloaded, or hoarded inboxes. The product flow is now scan-first: sign in with Google, run a mailbox metadata scan, review dashboard statistics and cleanup suggestions from local cache, preview a write action, confirm it, then apply the Gmail action by message ID and update the local metadata cache.
 
+## Development-only dummy Gmail mailbox (no Google account required)
+
+To test the full UI without touching a real mailbox, Tidy Mail has a dependency-injected synthetic Gmail provider. It is **off by default** and available only in Development. Two isolated local cookie accounts (Demo Alice and Demo Bob) each start with 48 synthetic messages.
+
+From the repository root:
+
+```bash
+ASPNETCORE_ENVIRONMENT=Development Mailbox__DemoMode=true ASPNETCORE_URLS=http://127.0.0.1:5088 dotnet run --project src/MailboxCleaner.Web --no-launch-profile
+```
+
+Open [http://127.0.0.1:5088](http://127.0.0.1:5088) and choose a demo account. Scan, filter, group, preview, move to Trash, archive, mark read/unread and add/move labels. The dummy provider changes **only its own in-memory test data** and simulates Gmail history updates and injected failures. Google OAuth routes are disabled while demo mode is active; non-development environments **refuse to start** when DemoMode is enabled.
+
+Run the .NET and headless Chromium integration checks through `.github/workflows/dotnet-ci.yml` or locally with `dotnet test MailboxCleaner.sln -c Release` and the browser test runner in `tests/browser`.
+
+**Full design, manual setup, test matrix and safety limitations:** [Dummy Gmail mailbox test guide](docs/DEMO_MAILBOX_TESTING.md). Passing dummy-mailbox tests does not prove real Google OAuth, Gmail API semantics or quotas.
+
 ## Product flow
 
 1. Sign in with Google.
