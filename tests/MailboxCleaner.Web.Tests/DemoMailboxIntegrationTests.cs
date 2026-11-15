@@ -172,6 +172,33 @@ public sealed class DemoMailboxIntegrationTests
     }
 
     [Fact]
+    public async Task SimulatedGmailFailure_DoesNotHidePreviousSuccessfulDashboardSnapshot()
+    {
+        using var services = BuildServices();
+        using var alice = CreateAccountScope(services, Alice);
+        var scanner = alice.ServiceProvider.GetRequiredService<MailboxScanService>();
+        var metadataStore = alice.ServiceProvider.GetRequiredService<IMailboxMetadataStore>();
+        var dummy = services.GetRequiredService<DemoMailboxStore>();
+
+        var first = await scanner.ScanAsync(Alice, null, Ct);
+        Assert.Equal(MailboxScanStatus.Completed, first.Status);
+        dummy.FailNextSync(Alice);
+
+        var failed = await scanner.ScanAsync(Alice, null, Ct);
+        Assert.Equal(MailboxScanStatus.Failed, failed.Status);
+        Assert.Contains("Simulated Gmail read failure", failed.ErrorMessage);
+        var persisted = await metadataStore.GetCurrentScanAsync(Alice, Ct);
+        Assert.Equal(MailboxScanStatus.Completed, persisted?.Status);
+        Assert.Equal(first.CompletedAt, persisted?.CompletedAt);
+        Assert.Equal(first.LastHistoryId, persisted?.LastHistoryId);
+        Assert.Equal(48, (await metadataStore.GetMetadataAsync(Alice, Ct)).Count);
+
+        var retry = await scanner.ScanAsync(Alice, null, Ct);
+        Assert.Equal(MailboxScanStatus.Completed, retry.Status);
+        Assert.Null(retry.ErrorMessage);
+    }
+
+    [Fact]
     public async Task ExpiredHistoryCursor_FallsBackToFullDemoScan()
     {
         using var services = BuildServices();
