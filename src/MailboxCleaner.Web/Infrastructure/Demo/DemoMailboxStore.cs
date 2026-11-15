@@ -31,6 +31,12 @@ public sealed class DemoMailboxStore
         }
     }
 
+    public void FailNextSync(string userKey)
+    {
+        var mailbox = GetMailbox(userKey);
+        lock (mailbox.SyncRoot) mailbox.FailNextSync = true;
+    }
+
     public void Reset(string userKey) => _mailboxes.TryRemove(ValidateUserKey(userKey), out _);
 
     private static string ValidateUserKey(string key) =>
@@ -106,7 +112,16 @@ public sealed class DemoMailboxStore
         internal Dictionary<string, DemoFailure> Failures { get; } = new(StringComparer.OrdinalIgnoreCase);
         internal List<(long Revision, string MessageId)> Changes { get; } = new();
         internal long Revision { get; set; } = 1_000;
+        internal bool FailNextSync { get; set; }
         internal long NextLabelId { get; set; } = 1;
+
+        internal void ThrowIfSyncFailureRequested()
+        {
+            if (!FailNextSync) return;
+            FailNextSync = false;
+            throw new GmailOperationException("Simulated Gmail read failure: retry the scan.",
+                new InvalidOperationException("Injected demo sync failure."));
+        }
 
         internal void RecordChange(string messageId)
         {
