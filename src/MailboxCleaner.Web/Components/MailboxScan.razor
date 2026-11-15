@@ -21,7 +21,7 @@
         <div class="mt-3 d-flex gap-2">
             <button class="btn btn-primary" disabled="@scanRunning" @onclick="StartScan">@(scanRunning ? "Scanning…" : "Start scan")</button>
             <button class="btn btn-outline-secondary" disabled="@(!scanRunning)" @onclick="CancelScan">Cancel scan</button>
-            <button class="btn btn-success" disabled="@(scanState.Status != MailboxScanStatus.Completed)" @onclick="ContinueToDashboard">Continue to dashboard</button>
+            <button class="btn btn-success" disabled="@(!canContinueToDashboard && scanState.Status != MailboxScanStatus.Completed)" @onclick="ContinueToDashboard">@(scanState.Status == MailboxScanStatus.Completed ? "Continue to dashboard" : "Use previous scan")</button>
         </div>
     </div>
 </div>
@@ -31,10 +31,12 @@
     private MailboxScanState scanState = new();
     private CancellationTokenSource? cancellation;
     private bool scanRunning;
+    private bool canContinueToDashboard;
 
     protected override async Task OnInitializedAsync()
     {
         scanState = await ScanService.GetOrCreateScanAsync(UserId, CancellationToken.None);
+        canContinueToDashboard = scanState.Status == MailboxScanStatus.Completed;
     }
 
     private async Task StartScan()
@@ -53,6 +55,8 @@
                 _ = InvokeAsync(StateHasChanged);
             });
             scanState = await ScanService.ScanAsync(UserId, progress, cancellation.Token);
+            var persisted = await ScanService.GetOrCreateScanAsync(UserId, CancellationToken.None);
+            canContinueToDashboard = persisted.Status == MailboxScanStatus.Completed;
         }
         finally
         {
