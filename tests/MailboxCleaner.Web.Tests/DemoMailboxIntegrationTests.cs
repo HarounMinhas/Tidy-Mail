@@ -87,6 +87,8 @@ public sealed class DemoMailboxIntegrationTests
 
         var beforeTrash = (await client.FetchMessageMetadataAsync(Ct)).Count;
         await actions.ApplyAsync(Alice, CleanupBulkAction.Trash, [third, fourth, fifth], null, null, Ct);
+        // Cache must match the Gmail-visible mailbox immediately, not only after rescan.
+        Assert.Equal(45, (await store.GetMetadataAsync(Alice, Ct)).Count);
         var afterTrash = await client.FetchMessageMetadataAsync(Ct);
         Assert.Equal(beforeTrash - 3, afterTrash.Count);
         Assert.DoesNotContain(afterTrash, m => m.Id == third || m.Id == fourth || m.Id == fifth);
