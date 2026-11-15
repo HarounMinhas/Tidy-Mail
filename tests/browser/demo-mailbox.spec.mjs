@@ -4,6 +4,8 @@ async function scanDemo(page, who) {
   await page.goto('/');
   await expect(page.getByText(/DEMO MODE.*synthetic data only/i)).toBeVisible();
   await page.getByRole('link', { name: `Open demo ${who}` }).click();
+  await expect(page).toHaveURL(/\/overview$/);
+  await expect(page.getByRole('button', { name: 'Leave demo' })).toBeVisible();
   await expect(page.getByText(/Demo mailbox.*fake Gmail data/i)).toBeVisible();
   await page.getByRole('button', { name: 'Start scan' }).click();
   await expect(page.getByRole('button', { name: 'Continue to dashboard' })).toBeEnabled();
