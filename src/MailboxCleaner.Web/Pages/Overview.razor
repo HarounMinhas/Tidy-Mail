@@ -4,15 +4,31 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IMailboxMetadataStore MetadataStore
 @inject MailboxUserContext MailboxUserContext
+@inject IWebHostEnvironment HostEnvironment
+@inject IConfiguration Configuration
 
 @if (isAuthenticated)
 {
+    @if (IsDemo)
+    {
+        <div class="alert alert-warning d-flex justify-content-between align-items-center" role="status">
+            <span><strong>Demo mailbox</strong> — fake Gmail data, no external writes. Account: @userId.</span>
+            <a href="/demo/logout" data-enhance-nav="false" class="btn btn-sm btn-outline-secondary">Leave demo</a>
+        </div>
+    }
     @if (showScan)
     {
         <MailboxScan UserId="@userId" />
     }
     else
     {
+        @if (!string.IsNullOrWhiteSpace(scanState?.ErrorMessage))
+        {
+            <div class="alert alert-warning" role="status">
+                The latest rescan did not complete: @scanState.ErrorMessage. Showing the last successful mailbox snapshot.
+                <button class="btn btn-sm btn-outline-primary ms-2" @onclick="() => showScan = true">Retry scan</button>
+            </div>
+        }
         @if (scanState is not null && MetadataStore.IsScanStale(scanState, TimeSpan.FromHours(12)))
         {
             <div class="alert alert-warning d-flex justify-content-between align-items-center">
@@ -26,11 +42,19 @@
 else
 {
     <div class="alert alert-info">
-        Please <a href="/auth/login">login with Google</a> to scan your mailbox.
+        @if (IsDemo)
+        {
+            <span>Choose <a href="/demo/login?account=alice" data-enhance-nav="false">demo Alice</a> or <a href="/demo/login?account=bob" data-enhance-nav="false">demo Bob</a> to test the mailbox.</span>
+        }
+        else
+        {
+            <span>Please <a href="/auth/login">login with Google</a> to scan your mailbox.</span>
+        }
     </div>
 }
 
 @code {
+    private bool IsDemo => HostEnvironment.IsDevelopment() && Configuration.GetValue<bool>("Mailbox:DemoMode");
     private MailboxScanState? scanState;
     private bool showScan;
     private bool isAuthenticated;

@@ -6,11 +6,17 @@ using MailboxCleaner.Web.Application.MailboxStats;
 using MailboxCleaner.Web.Infrastructure.Google;
 using MailboxCleaner.Web.Infrastructure.Security;
 using MailboxCleaner.Web.Infrastructure.Google.Gmail;
+using MailboxCleaner.Web.Infrastructure.Demo;
 using MailboxCleaner.Web.Components;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Never allow configuration alone to enable simulated Gmail on a deployed server.
+var demoEnabled = builder.Configuration.GetValue<bool>("Mailbox:DemoMode");
+if (demoEnabled && !builder.Environment.IsDevelopment())
+    throw new InvalidOperationException("Mailbox:DemoMode is allowed only in Development.");
 
 builder.Services.Configure<GoogleOAuthOptions>(builder.Configuration.GetSection("Google"));
 
@@ -19,16 +25,18 @@ if (string.IsNullOrWhiteSpace(keyDirectory))
 {
     var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
     if (string.IsNullOrWhiteSpace(localData)) localData = AppContext.BaseDirectory;
-    keyDirectory = Path.Combine(localData, "TidyMail", "keys");
+    keyDirectory = Path.Combine(localData, "TidyMail", demoEnabled ? "demo-keys" : "keys");
 }
 Directory.CreateDirectory(keyDirectory);
 builder.Services.AddDataProtection()
-    .SetApplicationName("TidyMail")
+    .SetApplicationName(demoEnabled ? "TidyMail.Demo" : "TidyMail")
     .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
+        // Keep the existing real-cookie name unchanged for backward compatibility.
+        if (demoEnabled) options.Cookie.Name = "TidyMail.Demo.Auth";
         options.LoginPath = "/auth/login";
         options.LogoutPath = "/auth/logout";
     });
@@ -49,11 +57,21 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddControllers();
 
-builder.Services.AddScoped<ITokenStore, SqliteTokenStore>();
+if (demoEnabled)
+{
+    builder.Services.AddSingleton<DemoMailboxStore>();
+    builder.Services.AddSingleton<IMailboxMetadataStore, MailboxMetadataStore>();
+    builder.Services.AddScoped<ITokenStore, DemoTokenStore>();
+    builder.Services.AddScoped<IGmailClient, DemoGmailClient>();
+}
+else
+{
+    builder.Services.AddSingleton<IMailboxMetadataStore, SqliteMailboxMetadataStore>();
+    builder.Services.AddScoped<ITokenStore, SqliteTokenStore>();
+    builder.Services.AddScoped<IGmailClient, GmailClient>();
+}
 builder.Services.AddScoped<IGoogleOAuthService, GoogleOAuthService>();
 builder.Services.AddScoped<IGmailCredentialFactory, GoogleUserCredentialFactory>();
-builder.Services.AddScoped<IGmailClient, GmailClient>();
-builder.Services.AddSingleton<IMailboxMetadataStore, SqliteMailboxMetadataStore>();
 builder.Services.AddSingleton<MailboxOperationCoordinator>();
 builder.Services.AddScoped<IUserMailboxKeyProvider, UserMailboxKeyProvider>();
 builder.Services.AddScoped<MailboxUserContext>();
@@ -82,7 +100,23 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
 
+// In local demo mode, never expose a path that could initiate real Google OAuth.
+if (demoEnabled)
+{
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/auth"))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+        await next();
+    });
+}
+
 app.MapControllers();
+if (demoEnabled)
+    app.MapDemoAuthEndpoints();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

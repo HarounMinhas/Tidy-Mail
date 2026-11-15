@@ -2,7 +2,7 @@ name: .NET build and tests
 
 on:
   push:
-    branches: [main, codex/implement-tidy-mail-backlog]
+    branches: [main, codex/implement-tidy-mail-backlog, codex/di-dummy-mailbox-tests]
   pull_request:
     branches: [main]
 
@@ -32,4 +32,68 @@ jobs:
         with:
           name: test-results
           path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
+
+  dummy-mailbox-browser:
+    name: Playwright demo mailbox (no Google)
+    needs: build-and-test
+    # Playwright Chromium currently lacks an ubuntu-26.04 browser build.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build app
+        run: |
+          dotnet restore MailboxCleaner.sln
+          dotnet build MailboxCleaner.sln -c Release --no-restore
+      - name: Confirm demo mode fails closed in Production
+        run: |
+          if ASPNETCORE_ENVIRONMENT=Production Mailbox__DemoMode=true dotnet run --project src/MailboxCleaner.Web -c Release --no-build --no-launch-profile > /tmp/tidymail-unsafe-demo.log 2>&1; then
+            echo "ERROR: Demo mode started in Production."
+            exit 1
+          fi
+          grep -q "Mailbox:DemoMode is allowed only in Development" /tmp/tidymail-unsafe-demo.log
+      - name: Install Playwright
+        working-directory: tests/browser
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Start synthetic Gmail app
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ASPNETCORE_URLS: http://127.0.0.1:5088
+          Mailbox__DemoMode: 'true'
+          Mailbox__DataProtectionKeysPath: /tmp/tidymail-demo-dp-keys
+        run: |
+          dotnet run --project src/MailboxCleaner.Web -c Release --no-build --no-launch-profile > /tmp/tidymail-demo.log 2>&1 &
+          echo $! > /tmp/tidymail-demo.pid
+          for attempt in $(seq 1 50); do
+            if curl --fail --silent http://127.0.0.1:5088/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/tidymail-demo.log
+          exit 1
+      - name: Run headless browser E2E
+        working-directory: tests/browser
+        run: npx playwright test
+      - name: Upload browser traces and app logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dummy-mailbox-browser-results
+          path: |
+            tests/browser/playwright-report/
+            tests/browser/test-results/
+            /tmp/tidymail-demo.log
           if-no-files-found: ignore

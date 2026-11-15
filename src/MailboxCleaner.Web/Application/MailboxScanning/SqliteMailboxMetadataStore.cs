@@ -192,6 +192,22 @@ public sealed class SqliteMailboxMetadataStore : IMailboxMetadataStore
         using var connection = await OpenAsync(cancellationToken);
         using var transaction = connection.BeginTransaction();
 
+        if (action == MailboxLocalAction.Trash)
+        {
+            // The active Gmail snapshot excludes Trash. Removing the rows also
+            // corrects dashboard counts before the next full/history sync.
+            foreach (var id in successfulMessageIds.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                using var delete = MakeCommand(connection,
+                    "DELETE FROM mailbox_messages WHERE user_id = $user AND message_id = $id",
+                    userId, transaction);
+                delete.Parameters.AddWithValue("$id", id);
+                await delete.ExecuteNonQueryAsync(cancellationToken);
+            }
+            transaction.Commit();
+            return;
+        }
+
         var selected = new List<MailboxMetadata>();
         foreach (var id in successfulMessageIds.Distinct(StringComparer.OrdinalIgnoreCase))
         {

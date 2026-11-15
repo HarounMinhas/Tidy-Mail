@@ -109,17 +109,34 @@ public sealed class MailboxScanService
         catch (OperationCanceledException)
         {
             state = state with { Status = MailboxScanStatus.Cancelled, StatusMessage = "Mailbox scan cancelled", CachedMetadata = await _store.GetMetadataAsync(userId, CancellationToken.None) };
-            await _store.SaveScanStateAsync(state, CancellationToken.None);
+            await SaveAttemptOutcomeAsync(state, previous);
             progress?.Report(state);
             return state;
         }
         catch (Exception ex)
         {
             state = state with { Status = MailboxScanStatus.Failed, StatusMessage = "Mailbox scan failed", ErrorMessage = ex.Message, CachedMetadata = await _store.GetMetadataAsync(userId, CancellationToken.None) };
-            await _store.SaveScanStateAsync(state, CancellationToken.None);
+            await SaveAttemptOutcomeAsync(state, previous);
             progress?.Report(state);
             return state;
         }
+    }
+
+    private async Task SaveAttemptOutcomeAsync(MailboxScanState attempt, MailboxScanState? previous)
+    {
+        // Do not replace the last successful snapshot with a Failed/Cancelled status.
+        // The failed attempt is returned to the scan UI, while the dashboard can
+        // continue using its last successfully synchronized metadata and history ID.
+        var persisted = previous?.Status == MailboxScanStatus.Completed
+            ? attempt with
+            {
+                Status = MailboxScanStatus.Completed,
+                CompletedAt = previous.CompletedAt,
+                LastHistoryId = previous.LastHistoryId,
+                StatusMessage = "Last rescan failed or was cancelled; cached snapshot is still available"
+            }
+            : attempt;
+        await _store.SaveScanStateAsync(persisted, CancellationToken.None);
     }
 
     public Task ClearScanAsync(string userId, CancellationToken cancellationToken) => _store.ClearAsync(userId, cancellationToken);

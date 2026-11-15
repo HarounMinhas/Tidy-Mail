@@ -1,12 +1,32 @@
 # Tidy Mail - TODO & volledig implementatieplan
 
-> **Stand van zaken:** 11 november 2026 (oorspronkelijke audit: 27 oktober 2026)  
+> **Stand van zaken:** 16 november 2026 (oorspronkelijke audit: 27 oktober 2026)  
 > **Repository:** [HarounMinhas/Tidy-Mail](https://github.com/HarounMinhas/Tidy-Mail)  
 > **Gecontroleerde basis:** `main`, mergecommit `8eb17491be3546bf22937bd8bd28f2d5f81ff77e` (11 november 2026); eerdere audit: juni-commit `9898337`.  
 > **Bronnen:** actuele code, README, bestaande tests en eerder gesloten GitHub-issues/PR's.  
 > **Belangrijk:** dit is een *statische code-audit*. Er zijn geen runtime-, echte Gmail- of browser-E2E-tests uitgevoerd tijdens deze inventarisatie. 'Aanwezig in code' betekent niet automatisch 'productieklaar'.
 
 Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en eventueel publiceren van alle huidige Tidy Mail-functionaliteit**. Nieuwe productideeën staan apart onder *Optionele uitbreidingen*; ze zijn geen verplichte voorwaarden om de bestaande MVP volledig werkend te maken.
+
+## Testinfrastructuur — 16 november 2026 (PR #13)
+
+**Doel:** de echte gebruikersflow kunnen oefenen zonder een Google-account, live API-tokens of het risico om productiemail te wijzigen.
+
+- [x] **DMT-01 — DI-vervangbare Gmailprovider:** `IGmailClient` wordt in expliciete Development `Mailbox:DemoMode` vervangen door `DemoGmailClient` en `DemoMailboxStore`.
+- [x] **DMT-02 — Realistische fictieve dataset:** 48 berichten per account (Alice/Bob) met leesstatus, labels, bijlagen, leeftijd, afzender-/domeinvariatie, nieuwsbriefheaders, onderwerp en history-ID.
+- [x] **DMT-03 — Simulatie van Gmail-acties:** Trash, Archive, MarkRead, MarkUnread, AddLabel, Move, CreateLabel, history-delta, voortgang en geforceerde fouten worden in geheugen gemuteerd.
+- [x] **DMT-04 — Productieveiligheid:** alleen expliciete Development; andere omgevingen weigeren opstarten, Google OAuth-routes zijn in demo uitgeschakeld, demo-cookies en sleutelring zijn apart, lokale loopback-login.
+- [x] **DMT-05 — Integratietests in .NET:** scan, statistieken, suggesties, actie-uitkomsten, incrementele geschiedenis, foutinjectie en accountisolatie via echte services met dummy `IGmailClient`.
+- [x] **DMT-06 — Browser-E2E-infrastructuur:** Chromium/Playwright-test en eigen GitHub Actions-job voor echte Blazor Server-interactie (resultaat per workflow controleren).
+- [ ] **DMT-07 — CI-groen en browserflow bewezen:** pas afvinken wanneer de laatste PR-run zowel .NET als Playwright groen toont.
+- [ ] **DMT-08 — Echte Gmail-integratie:** OAuth en Gmail op disposable testaccounts blijven apart vereist; de dummy alleen bewijst geen externe Gmail-semantiek.
+
+**Implementatie en stappenplan:** [docs/DEMO_MAILBOX_TESTING.md](docs/DEMO_MAILBOX_TESTING.md). [Werk-PR #13](https://github.com/HarounMinhas/Tidy-Mail/pull/13) bevat de nieuwe tests en demo, tot merge niet in `main`.
+
+**Eerder gevonden fouten in dezelfde PR:**
+
+- [x] **RV-01 (code):** Trash verwijdert bevestigde berichten direct uit de actieve geheugen- en SQLite-cache. Unit-/demo-regressietest; echte Gmail-verificatie blijft open.
+- [x] **RV-02 (code):** mislukte/geannuleerde rescan bewaart een eerdere succesvolle status, dashboarddata en history-ID, met foutmelding en retry. Demo-foutinjectietest; browser-/Gmail-verificatie blijft open.
 
 ## Post-merge audit — 11 november 2026
 
@@ -16,8 +36,8 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 
 **Nieuwe P1-releaseblokkers uit de review, nog open:**
 
-- [ ] **RV-01 / TM-015 / TM-023 — Trash/cache:** haal bevestigde Trash-berichten uit de actieve mailboxstatistieken en opruimsuggesties. Test direct na bulkactie én na Gmail-sync.
-- [ ] **RV-02 / TM-009/010 — Rescan-herstel:** bij geannuleerde/mislukte rescan de laatste geslaagde scan beschikbaar houden in het dashboard, met foutmelding en retry.
+- [ ] **RV-01 / TM-015 / TM-023 — Trash/cache:** codefix en dummy-test in PR #13; nog echte Gmail- en browserverificatie na bulkactie én sync.
+- [ ] **RV-02 / TM-009/010 — Rescan-herstel:** codefix en dummy-foutinjectietest in PR #13; nog browser-/Gmail-controle bij falen en annuleren.
 - [ ] **RV-03 / TM-008 — Gmail-resultaten per ID:** onderscheid batchacceptatie van geverifieerde individuele toestand, vooral bij gemengde successen, netwerkfouten en retries.
 - [ ] **RV-04 / TM-023/034/035/038 — Echte functionele verificatie:** browser-E2E en alle Gmail-acties met aparte testaccounts, twee gelijktijdige gebruikers, tokenverval, logout, herstel en veilig accountwisselen.
 

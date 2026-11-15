@@ -126,8 +126,9 @@ public sealed class MailboxMetadataStore : IMailboxMetadataStore
                 switch (action)
                 {
                     case MailboxLocalAction.Trash:
-                        labels.Remove("INBOX"); labels.Add("TRASH");
-                        break;
+                        // Full Gmail scans omit Trash. Keep the active cache consistent immediately.
+                        cache.Metadata.Remove(id);
+                        continue;
                     case MailboxLocalAction.Archive:
                         labels.Remove("INBOX");
                         break;

@@ -1,26 +1,43 @@
 @using System.Security.Claims
-@using Microsoft.AspNetCore.Authentication
-@using Microsoft.AspNetCore.Authentication.Cookies
+@inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
-@inject IHttpContextAccessor HttpContextAccessor
+@inject IWebHostEnvironment HostEnvironment
+@inject IConfiguration Configuration
 
-@code {
-    private ClaimsPrincipal? User => HttpContextAccessor.HttpContext?.User;
-
-    private void SignOut()
-    {
-        Navigation.NavigateTo("/auth/logout", forceLoad: true);
-    }
-}
-
-@if (User?.Identity?.IsAuthenticated == true)
+@if (isAuthenticated)
 {
     <div class="text-white d-flex align-items-center gap-2">
-        <span class="small">@User.Identity?.Name</span>
-        <button class="btn btn-outline-light btn-sm" @onclick="SignOut">Logout</button>
+        <span class="small">@displayName</span>
+        <button class="btn btn-outline-light btn-sm" @onclick="SignOut">@(IsDemo ? "Leave demo" : "Logout")</button>
+    </div>
+}
+else if (IsDemo)
+{
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-light btn-sm" href="/demo/login?account=alice" data-enhance-nav="false">Demo Alice</a>
+        <a class="btn btn-outline-light btn-sm" href="/demo/login?account=bob" data-enhance-nav="false">Demo Bob</a>
     </div>
 }
 else
 {
-    <a class="btn btn-outline-light btn-sm" href="/auth/login">Login with Google</a>
+    <a class="btn btn-outline-light btn-sm" href="/auth/login" data-enhance-nav="false">Login with Google</a>
+}
+
+@code {
+    private bool isAuthenticated;
+    private string displayName = string.Empty;
+
+    private bool IsDemo => HostEnvironment.IsDevelopment() && Configuration.GetValue<bool>("Mailbox:DemoMode");
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isAuthenticated = auth.User.Identity?.IsAuthenticated == true;
+        displayName = auth.User.Identity?.Name ?? "Account";
+    }
+
+    private void SignOut()
+    {
+        Navigation.NavigateTo(IsDemo ? "/demo/logout" : "/auth/logout", forceLoad: true);
+    }
 }
