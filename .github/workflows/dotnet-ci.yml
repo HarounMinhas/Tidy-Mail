@@ -55,6 +55,13 @@ jobs:
         run: |
           dotnet restore MailboxCleaner.sln
           dotnet build MailboxCleaner.sln -c Release --no-restore
+      - name: Confirm demo mode fails closed in Production
+        run: |
+          if ASPNETCORE_ENVIRONMENT=Production Mailbox__DemoMode=true dotnet run --project src/MailboxCleaner.Web -c Release --no-build --no-launch-profile > /tmp/tidymail-unsafe-demo.log 2>&1; then
+            echo "ERROR: Demo mode started in Production."
+            exit 1
+          fi
+          grep -q "Mailbox:DemoMode is allowed only in Development" /tmp/tidymail-unsafe-demo.log
       - name: Install Playwright
         working-directory: tests/browser
         run: |
