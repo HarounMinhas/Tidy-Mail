@@ -4,9 +4,18 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IMailboxMetadataStore MetadataStore
 @inject MailboxUserContext MailboxUserContext
+@inject IWebHostEnvironment HostEnvironment
+@inject IConfiguration Configuration
 
 @if (isAuthenticated)
 {
+    @if (IsDemo)
+    {
+        <div class="alert alert-warning d-flex justify-content-between align-items-center" role="status">
+            <span><strong>Demo mailbox</strong> — fake Gmail data, no external writes. Account: @userId.</span>
+            <a href="/demo/logout" class="btn btn-sm btn-outline-secondary">Leave demo</a>
+        </div>
+    }
     @if (showScan)
     {
         <MailboxScan UserId="@userId" />
@@ -26,11 +35,19 @@
 else
 {
     <div class="alert alert-info">
-        Please <a href="/auth/login">login with Google</a> to scan your mailbox.
+        @if (IsDemo)
+        {
+            <span>Choose <a href="/demo/login?account=alice">demo Alice</a> or <a href="/demo/login?account=bob">demo Bob</a> to test the mailbox.</span>
+        }
+        else
+        {
+            <span>Please <a href="/auth/login">login with Google</a> to scan your mailbox.</span>
+        }
     </div>
 }
 
 @code {
+    private bool IsDemo => HostEnvironment.IsDevelopment() && Configuration.GetValue<bool>("Mailbox:DemoMode");
     private MailboxScanState? scanState;
     private bool showScan;
     private bool isAuthenticated;
