@@ -1,16 +1,15 @@
 @inherits LayoutComponentBase
 
-<div class="page">
-    <header class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="/">Tidy Mail</a>
-            <div class="d-flex align-items-center">
-                <LoginStatus />
-            </div>
-        </div>
+<div class="tm-app">
+    <header class="tm-topbar">
+        <a class="tm-brand" href="/" aria-label="Tidy-Mail home">
+            <span class="tm-brand-mark" aria-hidden="true">✉</span>
+            <span>Tidy-Mail</span>
+        </a>
+        <span class="tm-topbar-caption">A clearer mailbox, one step at a time.</span>
+        <div class="tm-topbar-account"><LoginStatus /></div>
     </header>
-
-    <main class="container py-4">
+    <main class="tm-page">
         @Body
     </main>
 </div>
