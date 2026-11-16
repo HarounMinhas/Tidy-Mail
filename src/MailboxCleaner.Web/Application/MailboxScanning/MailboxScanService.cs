@@ -130,10 +130,24 @@ public sealed class MailboxScanService
         var persisted = previous?.Status == MailboxScanStatus.Completed
             ? attempt with
             {
+                // Keep the new attempt's ScanId: SaveScanStateAsync requires it to
+                // match the active attempt, otherwise the fallback is discarded.
                 Status = MailboxScanStatus.Completed,
+                StartedAt = previous.StartedAt,
                 CompletedAt = previous.CompletedAt,
+                LastPageToken = previous.LastPageToken,
                 LastHistoryId = previous.LastHistoryId,
-                StatusMessage = "Last rescan failed or was cancelled; cached snapshot is still available"
+                TotalDiscoveredMessages = previous.TotalDiscoveredMessages,
+                ScannedMessages = previous.ScannedMessages,
+                CurrentPage = previous.CurrentPage,
+                StatusMessage = attempt.Status == MailboxScanStatus.Cancelled
+                    ? "Rescan cancelled; previous completed snapshot is still available"
+                    : "Rescan failed; previous completed snapshot is still available",
+                // Overview uses ErrorMessage to display Retry scan even when the
+                // completed snapshot is recent (< 12 hours).
+                ErrorMessage = attempt.Status == MailboxScanStatus.Cancelled
+                    ? "The last rescan was cancelled."
+                    : attempt.ErrorMessage ?? "The last rescan failed."
             }
             : attempt;
         await _store.SaveScanStateAsync(persisted, CancellationToken.None);
