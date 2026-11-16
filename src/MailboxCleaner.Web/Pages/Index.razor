@@ -2,30 +2,33 @@
 @inject IWebHostEnvironment HostEnvironment
 @inject IConfiguration Configuration
 
-<div class="text-center">
-    <h1 class="display-5">Tidy Mail</h1>
-    <p class="lead">Get a sender overview for your Gmail inbox.</p>
+<section class="tm-landing">
+    <div class="tm-eyebrow">Gmail cleanup, without the clutter</div>
+    <h1>A clearer view of your mailbox.</h1>
+    <p class="tm-lead">Scan email metadata, find the senders filling your inbox, and review cleanup actions before anything changes in Gmail.</p>
     @if (IsDemo)
     {
-        <div class="alert alert-warning" role="status">
-            <strong>DEMO MODE — synthetic data only.</strong>
-            No Google account, OAuth token or real email is used. Changes are temporary and reset when the app restarts.
-        </div>
+        <div class="tm-notice tm-notice-warn" role="status"><strong>Demo mode:</strong> Synthetic messages only. No real Google account is connected and no real Gmail changes are made.</div>
     }
-
-    <div class="d-flex justify-content-center gap-2">
+    <div class="tm-landing-actions">
         @if (IsDemo)
         {
-            <a class="btn btn-primary" href="/demo/login?account=alice" data-enhance-nav="false">Open demo Alice</a>
-            <a class="btn btn-outline-primary" href="/demo/login?account=bob" data-enhance-nav="false">Open demo Bob</a>
+            <a class="btn btn-primary" href="/demo/login?account=alice" data-enhance-nav="false">Explore as demo Alice</a>
+            <a class="btn btn-outline-secondary" href="/demo/login?account=bob" data-enhance-nav="false">Explore as demo Bob</a>
         }
         else
         {
-            <a class="btn btn-primary" href="/auth/login">Login with Google</a>
+            <a class="btn btn-primary" href="/auth/login" data-enhance-nav="false">Continue with Google</a>
         }
-        <a class="btn btn-outline-secondary" href="/overview">Go to Overview</a>
+        <a class="btn btn-outline-secondary" href="/overview">Open mailbox overview</a>
     </div>
-</div>
+    <div class="tm-landing-benefits">
+        <div><strong>1. Scan</strong><span>Read metadata, not email bodies</span></div>
+        <div><strong>2. Review</strong><span>See statistics and cleanup suggestions</span></div>
+        <div><strong>3. Decide</strong><span>Preview and confirm every action</span></div>
+    </div>
+    <p class="tm-privacy-line">Nothing is removed or modified without your confirmation.</p>
+</section>
 
 @code {
     private bool IsDemo => HostEnvironment.IsDevelopment() && Configuration.GetValue<bool>("Mailbox:DemoMode");
