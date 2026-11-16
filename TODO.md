@@ -28,6 +28,15 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 - [x] **RV-01 (code):** Trash verwijdert bevestigde berichten direct uit de actieve geheugen- en SQLite-cache. Unit-/demo-regressietest; echte Gmail-verificatie blijft open.
 - [x] **RV-02 (code):** mislukte/geannuleerde rescan bewaart een eerdere succesvolle status, dashboarddata en history-ID, met foutmelding en retry. Demo-foutinjectietest; browser-/Gmail-verificatie blijft open.
 
+## Codex-review PR #13 — annulering van recente rescan (16 november 2026)
+
+**[Codex P2-review](https://github.com/HarounMinhas/Tidy-Mail/pull/13)**: een geannuleerde rescan behield wel een recente geslaagde snapshot, maar schreef geen `ErrorMessage` weg. Daardoor toonde `Overview.razor` noch **Retry scan** noch de stale-scan-knop tot de vorige scan ouder was dan 12 uur.
+
+- [x] **CR-13-01 codefix:** bewaar een expliciete annuleringsmarker in de als `Completed` bewaarde snapshot; behoud de vorige tellerwaarden, completion time en Gmail-history-ID, zonder de actieve ScanId te verliezen.
+- [x] **CR-13-02 regressietests geschreven:** gesimuleerde annulering bij een recente geslaagde dummy-scan en hetzelfde scenario met een gesloten/heropende SQLite-database; succesvolle volgende scan wist de marker.
+- [ ] **CR-13-03 verificatie:** controleer de .NET- én Chromium-CI op [PR #14](https://github.com/HarounMinhas/Tidy-Mail/pull/14) en markeer pas na groen resultaat als volledig getest.
+- [ ] **CR-13-04 live Gmail:** bevestig annuleren/herstarten ook met een echte disposable testmailbox; dummy-succes alleen is geen Gmail-integratietest.
+
 ## Post-merge audit — 11 november 2026
 
 **PR #12 is op 11 november 2026 naar main gemergd**: [mergecommit 8eb1749](https://github.com/HarounMinhas/Tidy-Mail/commit/8eb17491be3546bf22937bd8bd28f2d5f81ff77e). De laatste PR-CI-run had **34/34 geslaagde tests**. De gemergde code is in de daaropvolgende statische review opnieuw gecontroleerd.
