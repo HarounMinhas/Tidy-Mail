@@ -34,7 +34,7 @@ Dit bestand is de centrale backlog voor **het herstellen, voltooien, testen en e
 
 - [x] **CR-13-01 codefix:** bewaar een expliciete annuleringsmarker in de als `Completed` bewaarde snapshot; behoud de vorige tellerwaarden, completion time en Gmail-history-ID, zonder de actieve ScanId te verliezen.
 - [x] **CR-13-02 regressietests geschreven:** gesimuleerde annulering bij een recente geslaagde dummy-scan en hetzelfde scenario met een gesloten/heropende SQLite-database; succesvolle volgende scan wist de marker.
-- [ ] **CR-13-03 verificatie:** controleer de .NET- én Chromium-CI op [PR #14](https://github.com/HarounMinhas/Tidy-Mail/pull/14) en markeer pas na groen resultaat als volledig getest.
+- [x] **CR-13-03 verificatie:** [GitHub Actions #43841399767](https://github.com/HarounMinhas/Tidy-Mail/actions/runs/43841399767) is groen: **43/43 .NET-tests en Playwright/Chromium geslaagd**. [PR #14](https://github.com/HarounMinhas/Tidy-Mail/pull/14) is naar `main` gemergd ([commit 9896b1c](https://github.com/HarounMinhas/Tidy-Mail/commit/9896b1c41184e0a70199a63bd7633680e80b6b67)).
 - [ ] **CR-13-04 live Gmail:** bevestig annuleren/herstarten ook met een echte disposable testmailbox; dummy-succes alleen is geen Gmail-integratietest.
 
 ## Post-merge audit — 11 november 2026
