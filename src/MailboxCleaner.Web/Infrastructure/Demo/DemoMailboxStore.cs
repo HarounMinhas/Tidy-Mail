@@ -37,6 +37,12 @@ public sealed class DemoMailboxStore
         lock (mailbox.SyncRoot) mailbox.FailNextSync = true;
     }
 
+    public void CancelNextSync(string userKey)
+    {
+        var mailbox = GetMailbox(userKey);
+        lock (mailbox.SyncRoot) mailbox.CancelNextSync = true;
+    }
+
     public void Reset(string userKey) => _mailboxes.TryRemove(ValidateUserKey(userKey), out _);
 
     private static string ValidateUserKey(string key) =>
@@ -113,10 +119,16 @@ public sealed class DemoMailboxStore
         internal List<(long Revision, string MessageId)> Changes { get; } = new();
         internal long Revision { get; set; } = 1_000;
         internal bool FailNextSync { get; set; }
+        internal bool CancelNextSync { get; set; }
         internal long NextLabelId { get; set; } = 1;
 
         internal void ThrowIfSyncFailureRequested()
         {
+            if (CancelNextSync)
+            {
+                CancelNextSync = false;
+                throw new OperationCanceledException("Simulated cancellation during Gmail sync.");
+            }
             if (!FailNextSync) return;
             FailNextSync = false;
             throw new GmailOperationException("Simulated Gmail read failure: retry the scan.",
