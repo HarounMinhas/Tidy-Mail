@@ -199,6 +199,41 @@ public sealed class DemoMailboxIntegrationTests
     }
 
     [Fact]
+    public async Task CancelledRecentRescan_PreservesSnapshotAndVisibleRetryMarker()
+    {
+        using var services = BuildServices();
+        using var alice = CreateAccountScope(services, Alice);
+        var scanner = alice.ServiceProvider.GetRequiredService<MailboxScanService>();
+        var metadataStore = alice.ServiceProvider.GetRequiredService<IMailboxMetadataStore>();
+        var dummy = services.GetRequiredService<DemoMailboxStore>();
+
+        var completed = await scanner.ScanAsync(Alice, null, Ct);
+        Assert.Equal(MailboxScanStatus.Completed, completed.Status);
+        Assert.False(metadataStore.IsScanStale(completed, TimeSpan.FromHours(12)));
+
+        dummy.CancelNextSync(Alice);
+        var cancelled = await scanner.ScanAsync(Alice, null, Ct);
+        Assert.Equal(MailboxScanStatus.Cancelled, cancelled.Status);
+
+        var persisted = await metadataStore.GetCurrentScanAsync(Alice, Ct);
+        Assert.NotNull(persisted);
+        Assert.Equal(MailboxScanStatus.Completed, persisted.Status);
+        Assert.Equal(completed.CompletedAt, persisted.CompletedAt);
+        Assert.Equal(completed.StartedAt, persisted.StartedAt);
+        Assert.Equal(completed.LastHistoryId, persisted.LastHistoryId);
+        Assert.Equal(completed.ScannedMessages, persisted.ScannedMessages);
+        Assert.False(metadataStore.IsScanStale(persisted, TimeSpan.FromHours(12)));
+        // Overview.razor exposes Retry scan when ErrorMessage is nonempty,
+        // even if the last successful scan is still younger than 12 hours.
+        Assert.Contains("cancelled", persisted.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(48, (await metadataStore.GetMetadataAsync(Alice, Ct)).Count);
+
+        var retry = await scanner.ScanAsync(Alice, null, Ct);
+        Assert.Equal(MailboxScanStatus.Completed, retry.Status);
+        Assert.Null((await metadataStore.GetCurrentScanAsync(Alice, Ct))?.ErrorMessage);
+    }
+
+    [Fact]
     public async Task ExpiredHistoryCursor_FallsBackToFullDemoScan()
     {
         using var services = BuildServices();
