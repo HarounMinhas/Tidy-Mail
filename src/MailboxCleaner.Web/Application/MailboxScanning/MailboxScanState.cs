@@ -23,6 +23,8 @@ public sealed record MailboxScanState
     public MailboxScanStatus Status { get; init; } = MailboxScanStatus.NotStarted;
     public string StatusMessage { get; init; } = "Ready to scan";
     public string? ErrorMessage { get; init; }
+    // Ephemeral, sanitized diagnostic event for the live scan UI.
+    public string? DiagnosticMessage { get; init; }
     public string? LastHistoryId { get; init; }
     public IReadOnlyList<MailboxMetadata> CachedMetadata { get; init; } = Array.Empty<MailboxMetadata>();
 

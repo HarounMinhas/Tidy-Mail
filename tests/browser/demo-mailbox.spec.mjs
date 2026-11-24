@@ -7,8 +7,15 @@ async function scanDemo(page, who) {
   await expect(page).toHaveURL(/\/overview$/);
   await expect(page.getByRole('button', { name: 'Leave demo' })).toBeVisible();
   await expect(page.getByText(/Demo mailbox.*fake Gmail data/i)).toBeVisible();
+  const scanLogs = [];
+  page.on('console', message => {
+    if (message.text().includes('[TidyMail:scan]')) scanLogs.push(message.text());
+  });
   await page.getByRole('button', { name: 'Start scan' }).click();
   await expect(page.getByRole('button', { name: 'Continue to dashboard' })).toBeEnabled();
+  await expect.poll(() => scanLogs.some(line => line.includes('Start scan requested'))).toBe(true);
+  await expect.poll(() => scanLogs.some(line => line.includes('Mailbox scan complete') && line.includes('scanned=48'))).toBe(true);
+  expect(scanLogs.join('\n')).not.toContain('user:demo-');
   await page.getByRole('button', { name: 'Continue to dashboard' }).click();
   await expect(page.getByRole('heading', { name: 'Mailbox cleanup dashboard' })).toBeVisible();
   await expect(page.locator('.row.g-3 .card').first()).toContainText('48');
