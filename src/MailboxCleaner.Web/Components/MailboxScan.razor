@@ -84,39 +84,44 @@
         scanRunning = true;
         lastLog = null;
         scanState = new MailboxScanState { UserId = UserId };
+        var acceptProgress = true;
         try
         {
             await LogScanAsync("info", "Start scan requested");
             var progress = new Progress<MailboxScanState>(state =>
             {
-                if (disposed || !scanRunning) return;
+                if (disposed || !scanRunning || !acceptProgress) return;
                 scanState = state;
                 StateHasChanged();
                 _ = LogStateAsync(state);
             });
             scanState = await ScanService.ScanAsync(UserId, progress, cancellation.Token);
-            // Stop queued progress callbacks before displaying the authoritative result.
-            scanRunning = false;
+            // Stop queued progress callbacks without enabling Start scan until
+            // final logging, persisted-state read and cancellation cleanup finish.
+            acceptProgress = false;
             await LogStateAsync(scanState);
             var persisted = await ScanService.GetOrCreateScanAsync(UserId, CancellationToken.None);
             canContinueToDashboard = persisted.Status == MailboxScanStatus.Completed;
         }
         catch (OperationCanceledException) when (cancellation?.IsCancellationRequested == true)
         {
+            acceptProgress = false;
             scanState = scanState with { Status = MailboxScanStatus.Cancelled, StatusMessage = "Mailbox scan cancelled" };
             await LogStateAsync(scanState);
         }
         catch (Exception)
         {
+            acceptProgress = false;
             scanState = scanState with { Status = MailboxScanStatus.Failed, StatusMessage = "Mailbox scan failed",
                 ErrorMessage = "Unable to start or finish the scan. Check the application server diagnostics." };
             await LogStateAsync(scanState);
         }
         finally
         {
-            scanRunning = false;
+            acceptProgress = false;
             cancellation?.Dispose();
             cancellation = null;
+            scanRunning = false;
         }
     }
 
