@@ -6,21 +6,21 @@
 
 @if (isAuthenticated)
 {
-    <div class="text-white d-flex align-items-center gap-2">
+    <div class="tm-account-actions d-flex align-items-center gap-2">
         <span class="small">@displayName</span>
-        <button class="btn btn-outline-light btn-sm" @onclick="SignOut">@(IsDemo ? "Leave demo" : "Logout")</button>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="SignOut">@(IsDemo ? "Leave demo" : "Logout")</button>
     </div>
 }
 else if (IsDemo)
 {
     <div class="d-flex gap-2">
-        <a class="btn btn-outline-light btn-sm" href="/demo/login?account=alice" data-enhance-nav="false">Demo Alice</a>
-        <a class="btn btn-outline-light btn-sm" href="/demo/login?account=bob" data-enhance-nav="false">Demo Bob</a>
+        <a class="btn btn-outline-secondary btn-sm" href="/demo/login?account=alice" data-enhance-nav="false">Demo Alice</a>
+        <a class="btn btn-outline-secondary btn-sm" href="/demo/login?account=bob" data-enhance-nav="false">Demo Bob</a>
     </div>
 }
 else
 {
-    <a class="btn btn-outline-light btn-sm" href="/auth/login" data-enhance-nav="false">Login with Google</a>
+    <a class="btn btn-outline-secondary btn-sm" href="/auth/login" data-enhance-nav="false">Login with Google</a>
 }
 
 @code {

@@ -5,79 +5,283 @@
 @inject MailboxStatsService StatsService
 @inject CleanupSuggestionService SuggestionService
 
-@if (stats is null)
-{
-    <div class="alert alert-info">Loading dashboard from local metadata cache…</div>
-}
-else
-{
-    <div class="mb-4">
-        <h2>Mailbox cleanup dashboard</h2>
-        <p class="text-muted">Dashboard statistics, filters, and suggestions are calculated from local metadata only. Gmail is called again only after you confirm a write action.</p>
-        <div class="row g-3">
-            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.TotalScannedMessages</strong><br />Scanned</div></div></div>
-            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.ReadCount</strong><br />Read</div></div></div>
-            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.UnreadCount</strong><br />Unread</div></div></div>
-            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.MessagesWithAttachments</strong><br />Attachments</div></div></div>
-            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.MessagesOlderThanSixMonths</strong><br />6+ months</div></div></div>
-            <div class="col-md-2"><div class="card"><div class="card-body"><strong>@stats.MessagesOlderThanOneYear</strong><br />1+ year</div></div></div>
+<div class="tm-workspace">
+    <aside class="tm-sidebar" aria-label="Mailbox navigation">
+        <div class="tm-sidebar-heading">YOUR MAILBOX</div>
+        <nav class="tm-sidebar-nav" aria-label="Workspace sections">
+            <button type="button" class="tm-nav-item @(activeView == DashboardView.Overview ? "is-active" : "")" @onclick="() => SetView(DashboardView.Overview)"><span aria-hidden="true">▦</span> Overview</button>
+            <button type="button" class="tm-nav-item @(activeView == DashboardView.Suggestions ? "is-active" : "")" @onclick="() => SetView(DashboardView.Suggestions)"><span aria-hidden="true">◇</span> Suggestions</button>
+            <button type="button" class="tm-nav-item @(activeView == DashboardView.Senders ? "is-active" : "")" @onclick="() => SetView(DashboardView.Senders)"><span aria-hidden="true">♙</span> Senders</button>
+            <button type="button" class="tm-nav-item @(activeView == DashboardView.Results ? "is-active" : "")" @onclick="() => SetView(DashboardView.Results)"><span aria-hidden="true">☷</span> Results</button>
+            <button type="button" class="tm-nav-item @(activeView == DashboardView.Actions ? "is-active" : "")" @onclick="() => SetView(DashboardView.Actions)"><span aria-hidden="true">✓</span> Actions</button>
+        </nav>
+        <div class="tm-sidebar-foot">
+            <div class="tm-sidebar-callout">
+                <strong>You're in control.</strong>
+                <p>Nothing changes in Gmail until you review and confirm an action.</p>
+            </div>
+            <small>Metadata only · No email bodies</small>
         </div>
-    </div>
-
-    <div class="row g-3 mb-4">
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header">Cleanup suggestions</div>
-                <div class="card-body">
-                    @if (!suggestions.Any())
+    </aside>
+    <div class="tm-content">
+        @if (stats is null)
+        {
+            <div class="tm-panel tm-loading" role="status"><span class="spinner-border spinner-border-sm"></span> Loading dashboard from local metadata…</div>
+        }
+        else
+        {
+            <div class="tm-page-heading">
+                <div>
+                    <div class="tm-eyebrow">MAILBOX CLEANUP</div>
+                    <h1>@ViewTitle</h1>
+                    <p class="tm-subtitle">@ViewSubtitle</p>
+                </div>
+                <div class="tm-heading-actions">
+                    @if (stats.RecentScanDate.HasValue)
                     {
-                        <p class="text-muted">No cleanup suggestions yet.</p>
+                        <div class="tm-scan-status"><span class="tm-status-dot"></span> Last scan: @stats.RecentScanDate.Value.ToLocalTime().ToString("dd MMM yyyy, HH:mm")</div>
                     }
-                    @foreach (var suggestion in suggestions.Take(6))
+                    <button type="button" class="btn btn-outline-primary" @onclick="RequestRescan">↻ Rescan mailbox</button>
+                </div>
+            </div>
+
+            @if (activeView == DashboardView.Overview)
+            {
+                <div class="tm-info-strip" role="note">Only metadata is scanned and stored for this overview. No email bodies are read.</div>
+                <div class="tm-stats-grid">
+                    <div class="tm-stat-card"><span class="tm-stat-label">Total messages</span><strong>@stats.TotalScannedMessages.ToString("N0")</strong><span>From your last scan</span></div>
+                    <div class="tm-stat-card"><span class="tm-stat-label">Unread</span><strong>@stats.UnreadCount.ToString("N0")</strong><span>@stats.ReadCount.ToString("N0") read</span></div>
+                    <div class="tm-stat-card"><span class="tm-stat-label">Older than 1 year</span><strong>@stats.MessagesOlderThanOneYear.ToString("N0")</strong><span>@stats.MessagesOlderThanSixMonths.ToString("N0") older than 6 months</span></div>
+                    <div class="tm-stat-card"><span class="tm-stat-label">With attachments</span><strong>@stats.MessagesWithAttachments.ToString("N0")</strong><span>Attachment indicator only</span></div>
+                </div>
+
+                <div class="tm-two-column">
+                    <section class="tm-panel">
+                        <div class="tm-panel-heading">
+                            <div><h2>Top senders</h2><p>Who sends you the most mail?</p></div>
+                            <button type="button" class="tm-text-button" @onclick="() => SetView(DashboardView.Senders)">All top senders</button>
+                        </div>
+                        @if (stats.TopSenders.Count == 0)
+                        {
+                            <p class="tm-empty">No senders found in this scan.</p>
+                        }
+                        else
+                        {
+                            <div class="tm-table-scroll">
+                                <table class="tm-table">
+                                    <thead><tr><th>Sender</th><th class="tm-align-right">Emails</th><th class="tm-align-right">Unread</th><th></th></tr></thead>
+                                    <tbody>
+                                        @foreach (var sender in stats.TopSenders.Take(6))
+                                        {
+                                            <tr>
+                                                <td><div class="tm-sender-name">@sender.SenderName</div><small>@sender.SenderEmail</small></td>
+                                                <td class="tm-align-right">@sender.TotalCount.ToString("N0")</td>
+                                                <td class="tm-align-right">@sender.UnreadCount.ToString("N0")</td>
+                                                <td class="tm-align-right"><button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => ReviewSender(sender)">View</button></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </section>
+
+                    <section class="tm-panel">
+                        <div class="tm-panel-heading">
+                            <div><h2>Cleanup suggestions</h2><p>Ideas to review, never automatic actions.</p></div>
+                            <button type="button" class="tm-text-button" @onclick="() => SetView(DashboardView.Suggestions)">All suggestions</button>
+                        </div>
+                        @if (suggestions.Count == 0)
+                        {
+                            <p class="tm-empty">No suggestions yet. Your mailbox may already be tidy.</p>
+                        }
+                        else
+                        {
+                            <div class="tm-suggestion-list">
+                                @foreach (var suggestion in suggestions.Take(5))
+                                {
+                                    <div class="tm-suggestion-item">
+                                        <div class="tm-suggestion-text">
+                                            <strong>@suggestion.Title</strong>
+                                            <small>@suggestion.MessageCount.ToString("N0") messages · @suggestion.Explanation</small>
+                                        </div>
+                                        <span class="tm-risk tm-risk-@suggestion.RiskLevel.ToString().ToLowerInvariant()">@suggestion.RiskLevel</span>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => ReviewSuggestion(suggestion)">Preview</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </section>
+                </div>
+
+                <section class="tm-panel tm-domains-panel">
+                    <div class="tm-panel-heading"><div><h2>Top domains</h2><p>Companies or services responsible for a large share of your messages.</p></div></div>
+                    <div class="tm-domain-chips">
+                        @foreach (var domain in stats.TopDomains.Take(8))
+                        {
+                            <button type="button" class="tm-domain-chip" @onclick="() => ReviewDomain(domain)">@domain.Domain <span>@domain.TotalCount.ToString("N0")</span></button>
+                        }
+                        @if (stats.TopDomains.Count == 0)
+                        {
+                            <span class="tm-empty">No domains found.</span>
+                        }
+                    </div>
+                </section>
+            }
+            else if (activeView == DashboardView.Suggestions)
+            {
+                <div class="tm-info-strip">Suggestions are based on patterns in metadata. Always inspect the matching messages before choosing an action.</div>
+                <section class="tm-panel">
+                    <div class="tm-panel-heading"><div><h2>Review cleanup opportunities</h2><p>Sorted by number of matching emails</p></div></div>
+                    @if (suggestions.Count == 0)
                     {
-                        <div class="border-bottom pb-2 mb-2">
-                            <strong>@suggestion.Title</strong> <span class="badge text-bg-secondary">@suggestion.RiskLevel</span>
-                            <div>@suggestion.Explanation</div>
-                            <small>@suggestion.MessageCount messages · Suggested action: @suggestion.SuggestedAction</small>
-                            <div><button type="button" class="btn btn-sm btn-outline-primary mt-1" @onclick="() => ReviewSuggestion(suggestion)">Review these messages</button></div>
+                        <p class="tm-empty">No suggestions for this mailbox yet.</p>
+                    }
+                    @foreach (var suggestion in suggestions)
+                    {
+                        <div class="tm-suggestion-item tm-suggestion-full">
+                            <div class="tm-suggestion-text">
+                                <strong>@suggestion.Title</strong>
+                                <small>@suggestion.Explanation</small>
+                                <small>Suggested next step: @suggestion.SuggestedAction</small>
+                            </div>
+                            <strong class="tm-suggestion-count">@suggestion.MessageCount.ToString("N0")</strong>
+                            <span class="tm-risk tm-risk-@suggestion.RiskLevel.ToString().ToLowerInvariant()">@suggestion.RiskLevel</span>
+                            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => ReviewSuggestion(suggestion)">Preview</button>
                         </div>
                     }
+                </section>
+            }
+            else if (activeView == DashboardView.Senders)
+            {
+                <section class="tm-panel">
+                    <div class="tm-panel-heading"><div><h2>Most frequent senders</h2><p>Top @stats.TopSenders.Count senders by message volume. Filter the full mailbox in Results.</p></div>
+                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => SetView(DashboardView.Results)">Search all messages</button>
+                    </div>
+                    <div class="tm-table-scroll">
+                        <table class="tm-table">
+                            <thead><tr><th>Sender</th><th class="tm-align-right">Total</th><th class="tm-align-right">Unread</th><th class="tm-align-right">Attachments</th><th>Latest</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var sender in stats.TopSenders)
+                                {
+                                    <tr>
+                                        <td><div class="tm-sender-name">@sender.SenderName</div><small>@sender.SenderEmail</small></td>
+                                        <td class="tm-align-right">@sender.TotalCount.ToString("N0")</td>
+                                        <td class="tm-align-right">@sender.UnreadCount.ToString("N0")</td>
+                                        <td class="tm-align-right">@sender.AttachmentCount.ToString("N0")</td>
+                                        <td>@(sender.NewestMessageDate?.ToLocalTime().ToString("dd MMM yyyy") ?? "Unknown")</td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => ReviewSender(sender)">View messages</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            }
+            else if (activeView == DashboardView.Actions)
+            {
+                <div class="tm-panel tm-actions-help">
+                    <h2>Cleanup actions</h2>
+                    <p>Actions are available after selecting messages in Results. Every action includes a preview and confirmation.</p>
+                    <div class="tm-actions-grid">
+                        <div><strong>Archive</strong><span>Remove from Inbox, keep in All Mail.</span></div>
+                        <div><strong>Move to Trash</strong><span>Move selected messages into Gmail Trash.</span></div>
+                        <div><strong>Mark read/unread</strong><span>Update read status in Gmail.</span></div>
+                        <div><strong>Move / add label</strong><span>Organize messages using existing or new Gmail labels.</span></div>
+                    </div>
+                    <button type="button" class="btn btn-primary mt-3" @onclick="() => SetView(DashboardView.Results)">Go to results and select messages</button>
+                    <p class="tm-hint mt-3">For a previous operation's result or failed-message retry, stay on the Results screen until you have reviewed it. No automatic deletion takes place.</p>
                 </div>
-            </div>
-        </div>
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header">Top domains</div>
-                <div class="card-body">
-                    @foreach (var domain in stats.TopDomains.Take(10))
-                    {
-                        <div class="d-flex justify-content-between"><span>@domain.Domain</span><span>@domain.TotalCount</span></div>
-                    }
-                </div>
-            </div>
-        </div>
-    </div>
+            }
 
-    <SenderOverview @key="suggestionVersion" InitialSelectedMessageIds="selectedSuggestionIds"
-        SuggestedSelectionTitle="selectedSuggestionTitle" OnMailboxChanged="RefreshDashboardAsync" />
-}
+            @if (hasOpenedResults)
+            {
+                <div class="@(activeView == DashboardView.Results ? "" : "tm-visually-hidden")">
+                    <SenderOverview @key="resultsVersion"
+                        InitialSelectedMessageIds="selectedSuggestionIds"
+                        SuggestedSelectionTitle="selectedSuggestionTitle"
+                        InitialSenderFilter="selectedSenderFilter"
+                        InitialDomainFilter="selectedDomainFilter"
+                        OnMailboxChanged="RefreshDashboardAsync" />
+                </div>
+            }
+        }
+    </div>
+</div>
 
 @code {
     [Parameter] public string UserId { get; set; } = "session";
+    [Parameter] public EventCallback OnRescanRequested { get; set; }
+    private enum DashboardView { Overview, Suggestions, Senders, Results, Actions }
+    private DashboardView activeView = DashboardView.Overview;
+    private bool hasOpenedResults;
     private MailboxStats? stats;
     private IReadOnlyList<CleanupSuggestion> suggestions = Array.Empty<CleanupSuggestion>();
     private IReadOnlyCollection<string> selectedSuggestionIds = Array.Empty<string>();
     private string? selectedSuggestionTitle;
-    private int suggestionVersion;
+    private string? selectedSenderFilter;
+    private string? selectedDomainFilter;
+    private int resultsVersion;
+
+    private string ViewTitle => activeView switch
+    {
+        DashboardView.Suggestions => "Cleanup suggestions",
+        DashboardView.Senders => "Top senders",
+        DashboardView.Results => "Filtered results",
+        DashboardView.Actions => "Available actions",
+        _ => "Mailbox overview"
+    };
+    private string ViewSubtitle => activeView switch
+    {
+        DashboardView.Suggestions => "Find groups of messages worth reviewing.",
+        DashboardView.Senders => "Explore the senders filling up your mailbox.",
+        DashboardView.Results => "Filter locally, select messages, and confirm any changes.",
+        DashboardView.Actions => "Understand what you can do with selected messages.",
+        _ => "A simple overview of your mailbox."
+    };
+
+    protected override Task OnInitializedAsync() => RefreshDashboardAsync();
+
+    private void SetView(DashboardView view)
+    {
+        activeView = view;
+        if (view == DashboardView.Results) hasOpenedResults = true;
+    }
 
     private void ReviewSuggestion(CleanupSuggestion suggestion)
     {
         selectedSuggestionIds = suggestion.FilterCriteria.MessageIds;
         selectedSuggestionTitle = suggestion.Title;
-        suggestionVersion++;
+        selectedSenderFilter = null;
+        selectedDomainFilter = null;
+        hasOpenedResults = true;
+        activeView = DashboardView.Results;
+        resultsVersion++;
     }
 
-    protected override Task OnInitializedAsync() => RefreshDashboardAsync();
+    private void ReviewSender(SenderStatsRow sender)
+    {
+        selectedSuggestionIds = Array.Empty<string>();
+        selectedSuggestionTitle = null;
+        selectedSenderFilter = sender.SenderEmail;
+        selectedDomainFilter = null;
+        hasOpenedResults = true;
+        activeView = DashboardView.Results;
+        resultsVersion++;
+    }
+
+    private void ReviewDomain(DomainStatsRow domain)
+    {
+        selectedSuggestionIds = Array.Empty<string>();
+        selectedSuggestionTitle = null;
+        selectedSenderFilter = null;
+        selectedDomainFilter = domain.Domain;
+        hasOpenedResults = true;
+        activeView = DashboardView.Results;
+        resultsVersion++;
+    }
+
+    private Task RequestRescan() => OnRescanRequested.InvokeAsync();
 
     private async Task RefreshDashboardAsync()
     {

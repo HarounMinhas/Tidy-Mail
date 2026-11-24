@@ -1,328 +1,219 @@
-<h2>Sender overview</h2>
+<div class="tm-results">
+    <div class="tm-info-strip" role="note">Filtering and selection use the local mailbox snapshot. Gmail is contacted only when an action is confirmed.</div>
+    <section class="tm-panel tm-filter-panel">
+        <div class="tm-panel-heading">
+            <div><h2>Filter messages</h2><p>Find what to keep, archive or move to Trash.</p></div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleFilterPanel">@(showFilters ? "Hide filters" : "Show filters")</button>
+        </div>
+        @if (showFilters)
+        {
+            <div class="tm-filter-grid">
+                <div><label class="form-label" for="tm-sender-filter">Sender</label><input id="tm-sender-filter" class="form-control" @bind="SearchTerm" @bind:event="oninput" placeholder="Name or email" /></div>
+                <div><label class="form-label" for="tm-domain-filter">Domain</label><input id="tm-domain-filter" class="form-control" list="domain-options" @bind="DomainFilter" @bind:event="oninput" placeholder="example.com" /><datalist id="domain-options">@foreach (var domain in availableDomains) { <option value="@domain"></option> }</datalist></div>
+                <div><label class="form-label" for="tm-keyword-filter">Subject or keyword</label><input id="tm-keyword-filter" class="form-control" list="message-query-options" @bind="MessageQuery" @bind:event="oninput" placeholder="Search metadata" /><datalist id="message-query-options">@foreach (var suggestion in querySuggestions) { <option value="@suggestion"></option> }</datalist></div>
+                <div><label class="form-label" for="tm-read-filter">Read status</label><select id="tm-read-filter" class="form-select" @bind="MessageStatusFilter"><option value="">All</option><option value="Unread">Unread</option><option value="Read">Read</option></select></div>
+                <div><label class="form-label" for="tm-age-filter">Older than</label><select id="tm-age-filter" class="form-select" @bind="AgeFilter"><option value="">Any age</option><option value="6m">6 months</option><option value="1y">1 year</option></select></div>
+                <div><label class="form-label" for="tm-folder-filter">Folder</label><select id="tm-folder-filter" class="form-select" @bind="FolderFilter"><option value="">All folders</option>@foreach (var folder in ExistingFolders) { <option value="@folder">@folder</option> }</select></div>
+                <div><label class="form-label" for="tm-label-filter">Gmail label</label><select id="tm-label-filter" class="form-select" @bind="GmailLabelFilter"><option value="">All labels</option>@foreach (var label in existingLabels) { <option value="@label.Id">@label.Name</option> }</select></div>
+                <div><label class="form-label" for="tm-attachment-filter">Attachments</label><select id="tm-attachment-filter" class="form-select" @bind="AttachmentFilterValue"><option value="">Any</option><option value="true">Has attachment</option><option value="false">No attachment</option></select></div>
+            </div>
+            <div class="d-flex flex-wrap gap-4 mt-3">
+                <label class="form-check-label"><input class="form-check-input me-2" type="checkbox" @bind="NoreplyOnly" />No-reply only</label>
+                <label class="form-check-label"><input class="form-check-input me-2" type="checkbox" @bind="NewsletterOnly" />Likely newsletters</label>
+                <label class="form-check-label"><input class="form-check-input me-2" type="checkbox" @bind="NotificationOnly" />Notifications</label>
+            </div>
+        }
+    </section>
 
-<div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <span>Filters</span>
-        <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleFilterPanel">@(showFilters ? "Hide" : "Show") filters</button>
-    </div>
-    @if (showFilters)
+    @if (isLoading)
     {
-        <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-4">
-                    <label class="form-label">Search sender</label>
-                    <input class="form-control" @bind="SearchTerm" @bind:event="oninput" placeholder="Search by name or email" />
+        <div class="tm-panel" role="status"><span class="spinner-border spinner-border-sm me-2"></span>@progressMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(SuggestedSelectionTitle) && suggestedSelectionCount > 0)
+    {
+        <div class="alert alert-info" role="status"><strong>Review: @SuggestedSelectionTitle</strong> — @suggestedSelectionCount selected. No action has been performed. Inspect the selection and choose an action below.</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="alert alert-success" role="status">@successMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage
+            @if (NeedsGmailReconnect) { <div class="mt-2"><a href="/auth/login" class="btn btn-sm btn-outline-primary">Reconnect Google account</a></div> }
+        </div>
+    }
+    @if (lastActionResult is not null)
+    {
+        <div class="alert @(lastActionResult.RequiresReconciliation ? "alert-warning" : "alert-success")" role="status">
+            <strong>Last Gmail action: @lastActionKind</strong> — acknowledged @lastActionResult.TotalSucceeded of @lastActionResult.TotalRequested; @lastActionResult.TotalFailed rejected; @lastActionResult.TotalUnknown uncertain.
+            @if (lastActionResult.CacheUpdateFailed) { <div>Local cache update failed. Check Gmail before retrying.</div> }
+            @if (lastActionResult.TotalUnknown > 0) { <div>Some outcomes are uncertain. Do not retry those messages before checking Gmail.</div> }
+            @if (lastActionResult.TotalFailed > 0)
+            {
+                <div class="mt-2"><button type="button" class="btn btn-sm btn-outline-dark" disabled="@(actionInProgress || !canRetryRejected)" @onclick="ReviewRejectedMessages">Select rejected messages for new preview</button></div>
+            }
+            @if (lastActionResult.ErrorMessages.Count > 0) { <div class="small mt-2">@string.Join(" | ", lastActionResult.ErrorMessages.Take(3))</div> }
+        </div>
+    }
+    @if (!isLoading)
+    {
+        <section class="tm-panel tm-results-list">
+            <div class="tm-panel-heading">
+                <div><h2>@visibleMessageIds.Count.ToString("N0") matching messages</h2><p>Grouped by sender. Expand a sender to review individual emails.</p></div>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    <label class="form-label mb-0" for="tm-sort-field">Sort senders</label>
+                    <select id="tm-sort-field" class="form-select form-select-sm" style="width:auto" @bind="SortField"><option value="Count">Email count</option><option value="Name">Sender name</option><option value="Email">Email address</option><option value="Newest">Newest email</option><option value="Oldest">Oldest email</option></select>
+                    <select aria-label="Sort direction" class="form-select form-select-sm" style="width:auto" @bind="SortDirection"><option value="Desc">Descending</option><option value="Asc">Ascending</option></select>
                 </div>
-                <div class="col-md-2">
-                    <label class="form-label">Domain</label>
-                    <input class="form-control" list="domain-options" @bind="DomainFilter" @bind:event="oninput" />
-                    <datalist id="domain-options">
-                        @foreach (var domain in availableDomains)
+            </div>
+            @if (!filteredSenders.Any())
+            {
+                <div class="tm-empty">No messages match these filters.</div>
+            }
+            else
+            {
+                <div class="tm-selection-bar">
+                    <span class="tm-selection-count">@engine.SelectedMessageIds.Count.ToString("N0") selected</span>
+                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@actionInProgress" @onclick="SelectVisible">Select all matching</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(actionInProgress || engine.SelectedMessageIds.Count == 0)" @onclick="ClearSelection">Clear selection</button>
+                </div>
+                @if (HiddenSelectedCount > 0)
+                {
+                    <div class="alert alert-warning" role="status">@HiddenSelectedCount selected messages are hidden by the current filters. Bulk actions will include them; review this before confirming.</div>
+                }
+                @foreach (var sender in PagedSenders)
+                {
+                    var senderMessages = filteredBySender.TryGetValue(sender.Email, out var rows) ? rows : new List<MailItemDto>();
+                    if (senderMessages.Count == 0) { continue; }
+                    var expanded = engine.ExpandedSenders.Contains(sender.Email);
+                    <div class="card mb-2">
+                        <div class="card-header d-flex align-items-center justify-content-between gap-2">
+                            <div class="d-flex align-items-center gap-2 flex-grow-1">
+                                <input type="checkbox" aria-label="Select sender messages" checked="@engine.IsSenderFullySelected(sender.Email, senderMessages.Select(m => m.Id).ToList())" @onchange="args => ToggleSenderSelection(sender.Email, args)" />
+                                <button type="button" class="btn btn-link tm-result-expand text-decoration-none" @onclick="() => ToggleSender(sender.Email)">@(expanded ? "▾" : "▸") @sender.Name <small class="text-muted">(@sender.Email)</small></button>
+                            </div>
+                            <span class="small text-muted">@senderMessages.Count.ToString("N0") matching · @sender.Count.ToString("N0") total</span>
+                        </div>
+                        @if (expanded)
                         {
-                            <option value="@domain"></option>
+                            <div class="card-body p-0">
+                                <table class="table table-sm table-striped mb-0">
+                                    <thead><tr><th>Select</th><th>Subject</th><th>Received</th><th>Status</th><th>Attachment</th><th>Folder</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var message in senderMessages.Take(50))
+                                        {
+                                            <tr><td><input type="checkbox" aria-label="Select email" checked="@engine.SelectedMessageIds.Contains(message.Id)" @onchange="args => ToggleMessageSelection(message.Id, args)" /></td>
+                                                <td>@message.Subject</td><td>@(message.ReceivedAt?.ToLocalTime().ToString("dd MMM yyyy") ?? "Unknown")</td><td>@(message.IsRead ? "Read" : "Unread")</td><td>@(message.HasAttachment ? "Yes" : "No")</td><td>@message.Folder</td></tr>
+                                        }
+                                    </tbody>
+                                </table>
+                                @if (senderMessages.Count > 50)
+                                {
+                                    <div class="p-2 small text-muted">Showing the first 50 matching messages from this sender. All @senderMessages.Count messages still match the current filters and can be selected with the sender checkbox.</div>
+                                }
+                            </div>
                         }
-                    </datalist>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">Status</label>
-                    <select class="form-select" @bind="MessageStatusFilter">
-                        <option value="">All</option>
-                        <option value="Unread">Unread</option>
-                        <option value="Read">Read</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">Folder</label>
-                    <select class="form-select" @bind="FolderFilter">
-                        <option value="">All</option>
-                        @foreach (var folder in ExistingFolders)
-                        {
-                            <option value="@folder">@folder</option>
-                        }
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">Attachments</label>
-                    <select class="form-select" @bind="AttachmentFilterValue">
-                        <option value="">All</option>
-                        <option value="true">With attachment</option>
-                        <option value="false">No attachment</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">Age</label>
-                    <select class="form-select" @bind="AgeFilter">
-                        <option value="">Any age</option>
-                        <option value="6m">Older than 6 months</option>
-                        <option value="1y">Older than 1 year</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Gmail label</label>
-                    <select class="form-select" @bind="GmailLabelFilter">
-                        <option value="">All labels</option>
-                        @foreach (var label in existingLabels)
-                        {
-                            <option value="@label.Id">@label.Name</option>
-                        }
-                    </select>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label">Autocomplete sender/keyword</label>
-                    <input class="form-control" list="message-query-options" @bind="MessageQuery" @bind:event="oninput" placeholder="Search sender or keyword" />
-                    <datalist id="message-query-options">
-                        @foreach (var suggestion in querySuggestions)
-                        {
-                            <option value="@suggestion"></option>
-                        }
-                    </datalist>
-                </div>
-                <div class="col-md-2">
-                    <div class="form-check mt-4">
-                        <input class="form-check-input" type="checkbox" id="noreplyOnly" @bind="NoreplyOnly" />
-                        <label class="form-check-label" for="noreplyOnly">Noreply only</label>
+                    </div>
+                }
+                <div class="d-flex align-items-center justify-content-between mt-3 gap-2">
+                    <small class="text-muted">Senders @(senderPage * SendersPerPage + 1)–@Math.Min((senderPage + 1) * SendersPerPage, filteredSenders.Count) of @filteredSenders.Count</small>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(senderPage == 0)" @onclick="() => ChangeSenderPage(senderPage - 1)">Previous</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(senderPage + 1 >= SenderPageCount)" @onclick="() => ChangeSenderPage(senderPage + 1)">Next</button>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <div class="form-check mt-4">
-                        <input class="form-check-input" type="checkbox" id="newsletterOnly" @bind="NewsletterOnly" />
-                        <label class="form-check-label" for="newsletterOnly">Likely newsletters only</label>
+            }
+        </section>
+        @if (filteredSenders.Any())
+        {
+            <section class="tm-action-toolbar" aria-label="Bulk actions">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <strong>@engine.SelectedMessageIds.Count.ToString("N0") emails selected</strong>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-outline-primary btn-sm" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Archive)">Archive</button>
+                        <button class="btn btn-outline-primary btn-sm" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkRead)">Mark read</button>
+                        <button class="btn btn-outline-primary btn-sm" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkUnread)">Mark unread</button>
+                        <button class="btn btn-outline-primary btn-sm" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Move)">Move to label</button>
+                        <button class="btn btn-outline-primary btn-sm" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.AddLabel)">Add label</button>
+                        <button class="btn btn-outline-danger btn-sm" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Delete)">Move to Trash</button>
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <div class="form-check mt-4">
-                        <input class="form-check-input" type="checkbox" id="notificationOnly" @bind="NotificationOnly" />
-                        <label class="form-check-label" for="notificationOnly">Notifications only</label>
+            </section>
+        }
+    }
+
+    @if (showActionPane && pendingAction.HasValue)
+    {
+        <div class="tm-modal-backdrop" role="presentation">
+            <div class="tm-dialog" role="dialog" aria-modal="true" aria-labelledby="tm-action-title">
+                <div class="tm-dialog-header">
+                    <div><h2 id="tm-action-title">Preview: @ActionDisplayName</h2><p>Review the messages and details before anything changes in Gmail.</p></div>
+                    <button type="button" class="tm-dialog-close" aria-label="Close preview" disabled="@actionInProgress" @onclick="CancelAction">×</button>
+                </div>
+                <div class="tm-dialog-summary">
+                    <div><strong>@(actionPreview?.SelectedCount.ToString("N0") ?? "0") messages</strong><span>Included in this action</span></div>
+                    <div><strong>@(previewMessages.Select(m => m.SenderEmail).Distinct(StringComparer.OrdinalIgnoreCase).Count()) senders</strong><span>Across the selected messages</span></div>
+                </div>
+                @if (HiddenSelectedCount > 0)
+                {
+                    <div class="alert alert-warning">This includes @HiddenSelectedCount messages hidden by your filters.</div>
+                    <label class="d-block mb-3"><input type="checkbox" class="form-check-input me-2" @bind="acknowledgesHiddenSelection" />Include hidden selected messages</label>
+                }
+                @if (pendingAction == MailBulkAction.Delete)
+                {
+                    <div class="alert alert-warning">These messages will be moved to Gmail Trash. Review carefully.</div>
+                    @if (RequiresExtraConfirmation)
+                    {
+                        <div class="alert alert-danger">Some messages are unread, recent, starred or important.</div>
+                        <label class="d-block mb-3"><input type="checkbox" class="form-check-input me-2" @bind="acknowledgesRisk" />I reviewed the potentially important messages.</label>
+                    }
+                }
+                @if (pendingAction == MailBulkAction.Move || pendingAction == MailBulkAction.AddLabel)
+                {
+                    <div class="alert alert-info">@(pendingAction == MailBulkAction.Move ? "Move removes the Inbox and other custom labels. System flags remain unchanged." : "Add label keeps the existing labels and Inbox state.")</div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6"><label class="form-label" for="tm-target-label">Existing Gmail label</label><select id="tm-target-label" class="form-select" @bind="selectedDestinationLabelId"><option value="">Select label</option>@foreach (var label in MoveDestinationLabels) { <option value="@label.Id">@label.Name</option> }</select></div>
+                        <div class="col-md-6"><label class="form-label" for="tm-new-label">Or create a new label</label><input id="tm-new-label" class="form-control" @bind="newFolderName" placeholder="Label name" /></div>
                     </div>
+                }
+                <h3 class="h6">Sample of affected messages</h3>
+                <ul class="tm-dialog-samples">
+                    @foreach (var message in previewMessages.Take(8))
+                    {
+                        <li><strong>@message.SenderEmail</strong> — @message.Subject</li>
+                    }
+                </ul>
+                @if (actionInProgress) { <p class="text-primary" role="status">@progressMessage</p> }
+                <div class="tm-dialog-footer">
+                    <button type="button" class="btn btn-outline-secondary" disabled="@actionInProgress" @onclick="CancelAction">Cancel</button>
+                    <button type="button" class="btn btn-primary" disabled="@(!CanConfirmAction)" @onclick="ConfirmAction">@(actionInProgress ? "Working…" : "Confirm action")</button>
                 </div>
             </div>
         </div>
     }
 </div>
 
-@if (isLoading)
-{
-    <div class="alert alert-info"><span class="spinner-border spinner-border-sm me-2"></span>@progressMessage</div>
-}
-@if (!string.IsNullOrWhiteSpace(SuggestedSelectionTitle) && suggestedSelectionCount > 0)
-{
-    <div class="alert alert-info" role="status">
-        <strong>Review: @SuggestedSelectionTitle</strong> — @suggestedSelectionCount messages selected.
-        No action has been chosen or performed. Inspect the selection below and explicitly choose an action if desired.
-    </div>
-}
-@if (!string.IsNullOrWhiteSpace(successMessage))
-{
-    <div class="alert alert-success">@successMessage</div>
-}
-@if (!string.IsNullOrWhiteSpace(errorMessage))
-{
-    <div class="alert alert-danger">@errorMessage
-        @if (NeedsGmailReconnect)
-        {
-            <div class="mt-2"><a href="/auth/login" class="btn btn-sm btn-outline-primary">Reconnect Google account</a></div>
-        }
-    </div>
-}
-@if (lastActionResult is not null)
-{
-    <div class="alert @(lastActionResult.RequiresReconciliation ? "alert-warning" : "alert-success")" role="status">
-        <strong>Last Gmail action: @lastActionKind</strong> —
-        Gmail acknowledged @lastActionResult.TotalSucceeded of @lastActionResult.TotalRequested messages;
-        @lastActionResult.TotalFailed rejected, @lastActionResult.TotalUnknown uncertain.
-        @if (lastActionResult.CacheUpdateFailed)
-        {
-            <div>The local metadata update failed. Gmail accepted the action; check the refreshed mailbox before trying again.</div>
-        }
-        @if (lastActionResult.TotalUnknown > 0)
-        {
-            <div><strong>Do not retry uncertain messages yet:</strong> the request may have reached Gmail. Review the refreshed mailbox first.</div>
-        }
-        @if (lastActionResult.TotalFailed > 0)
-        {
-            <button type="button" class="btn btn-sm btn-outline-dark mt-2" disabled="@(actionInProgress || !canRetryRejected)" @onclick="ReviewRejectedMessages">
-                Select @lastActionResult.TotalFailed rejected messages for a new preview
-            </button>
-        }
-        @if (lastActionResult.ErrorMessages.Count > 0)
-        {
-            <div class="small mt-2">@string.Join(" | ", lastActionResult.ErrorMessages.Take(3))</div>
-        }
-    </div>
-}
-@if (!isLoading && !filteredSenders.Any())
-{
-    <div class="alert alert-warning">No senders found.</div>
-}
-else if (!isLoading)
-{
-    <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
-        <span class="text-muted">Selected messages: @engine.SelectedMessageIds.Count (@HiddenSelectedCount hidden by the current filters). Selecting a sender selects only its currently visible messages.</span>
-        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@actionInProgress" @onclick="SelectVisible">Select visible</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(actionInProgress || engine.SelectedMessageIds.Count == 0)" @onclick="ClearSelection">Clear selection</button>
-    </div>
-    @if (HiddenSelectedCount > 0)
-    {
-        <div class="alert alert-warning">You have @HiddenSelectedCount selected messages hidden by active filters. Any bulk action includes these messages unless you clear the selection.</div>
-    }
-    <div class="row g-2 mb-3"><div class="col-md-3"><select class="form-select" @bind="SortField"><option value="Count">Message count</option><option value="Name">Sender name</option><option value="Email">Email</option><option value="Newest">Newest message</option><option value="Oldest">Oldest message</option></select></div><div class="col-md-2"><select class="form-select" @bind="SortDirection"><option value="Desc">Descending</option><option value="Asc">Ascending</option></select></div></div>
-
-    @foreach (var sender in filteredSenders)
-    {
-        var senderMessages = filteredBySender.TryGetValue(sender.Email, out var rows)
-            ? rows
-            : new List<MailItemDto>();
-        if (!senderMessages.Any())
-        {
-            continue;
-        }
-
-        var senderExpanded = engine.ExpandedSenders.Contains(sender.Email);
-        <div class="card mb-2">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <div class="d-flex align-items-center gap-2">
-                    <input type="checkbox" checked="@engine.IsSenderFullySelected(sender.Email, senderMessages.Select(m => m.Id).ToList())" @onchange="(args) => ToggleSenderSelection(sender.Email, args)" />
-                    <button class="btn btn-sm btn-link text-decoration-none" @onclick="() => ToggleSender(sender.Email)">
-                        @sender.Name (@sender.Email) - @senderMessages.Count mails
-                    </button>
-                </div>
-                <span class="badge text-bg-secondary">@sender.Count total</span>
-            </div>
-            @if (senderExpanded)
-            {
-                <div class="card-body p-0">
-                    <table class="table table-sm table-striped mb-0">
-                        <thead>
-                            <tr>
-                                <th></th>
-                                <th>Title</th>
-                                <th>Received</th>
-                                <th>Attachment</th>
-                                <th>Status</th>
-                                <th>Folder</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var message in senderMessages)
-                            {
-                                <tr>
-                                    <td>
-                                        <input type="checkbox" checked="@engine.SelectedMessageIds.Contains(message.Id)" @onchange="(args) => ToggleMessageSelection(message.Id, args)" />
-                                    </td>
-                                    <td>@message.Subject</td>
-                                    <td>@(message.ReceivedAt?.ToString("yyyy-MM-dd") ?? "Unknown")</td>
-                                    <td>@(message.HasAttachment ? "Yes" : "No")</td>
-                                    <td>@(message.IsRead ? "Read" : "Unread")</td>
-                                    <td>@message.Folder</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-        </div>
-    }
-
-    <div class="card mt-4">
-        <div class="card-header">Bulk actions</div>
-        <div class="card-body d-flex flex-wrap gap-2">
-            <button class="btn btn-outline-danger" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Delete)">Move to trash</button>
-            <button class="btn btn-outline-primary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Archive)">Archive</button>
-            <button class="btn btn-outline-secondary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkRead)">Mark as read</button>
-            <button class="btn btn-outline-secondary" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.MarkUnread)">Mark as unread</button>
-            <button class="btn btn-outline-warning" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.Move)">Move to label</button>
-            <button class="btn btn-outline-success" disabled="@(engine.SelectedMessageIds.Count == 0 || actionInProgress)" @onclick="() => OpenActionPane(MailBulkAction.AddLabel)">Add label (keep existing)</button>
-        </div>
-    </div>
-}
-
-@if (showActionPane && pendingAction.HasValue)
-{
-    <div class="card mt-3 border-warning">
-        <div class="card-header">Confirm action</div>
-        <div class="card-body">
-            <p>You are about to apply <strong>@pendingAction</strong> to <strong>@actionPreview?.SelectedCount</strong> selected messages.</p>
-            @if (HiddenSelectedCount > 0)
-            {
-                <div class="alert alert-warning">This action includes @HiddenSelectedCount messages not currently visible under your filters.</div>
-                <div class="form-check mb-3">
-                    <input class="form-check-input" type="checkbox" id="ackHidden" @bind="acknowledgesHiddenSelection" />
-                    <label class="form-check-label" for="ackHidden">Include these hidden selected messages in the action.</label>
-                </div>
-            }
-            @if (pendingAction == MailBulkAction.Delete)
-            {
-                <div class="alert alert-warning">The selected messages will be moved to Gmail Trash. Check the sender and subject examples below before confirming.</div>
-                @if (RequiresExtraConfirmation)
-                {
-                    <div class="alert alert-danger">This selection includes unread, recent, starred or important messages. Review carefully before moving them to Trash.</div>
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" id="ackRisk" @bind="acknowledgesRisk" />
-                        <label class="form-check-label" for="ackRisk">I reviewed the potentially important messages and confirm this action.</label>
-                    </div>
-                }
-            }
-            <p class="mb-1"><strong>Affected senders</strong></p>
-            <ul>
-                @foreach (var sender in previewMessages.GroupBy(m => m.SenderEmail, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).Take(5))
-                {
-                    <li>@sender.Key — @sender.Count() messages</li>
-                }
-            </ul>
-            <p class="mb-1"><strong>Sample messages (up to 10)</strong></p>
-            <ul>
-                @foreach (var message in previewMessages.Take(10))
-                {
-                    <li>@message.SenderEmail — @message.Subject</li>
-                }
-            </ul>
-
-            @if (pendingAction == MailBulkAction.Move || pendingAction == MailBulkAction.AddLabel)
-            {
-                @if (pendingAction == MailBulkAction.Move)
-                {
-                    <div class="alert alert-warning">Move to label removes the INBOX label and all other custom labels from selected messages. Read/unread, starred and important flags remain unchanged. To keep other labels, choose <strong>Add label</strong> instead.</div>
-                }
-                else
-                {
-                    <div class="alert alert-info">Add label preserves the INBOX label and all existing labels. It does not archive or move the selected messages.</div>
-                }
-                <div class="row g-2 align-items-end">
-                    <div class="col-md-6">
-                        <label class="form-label">Destination Gmail label</label>
-                        <select class="form-select" @bind="selectedDestinationLabelId" disabled="@(!MoveDestinationLabels.Any())">
-                            <option value="">-- Select a destination label --</option>
-                            @if (!MoveDestinationLabels.Any())
-                            {
-                                <option value="">No user labels available</option>
-                            }
-                            @foreach (var label in MoveDestinationLabels)
-                            {
-                                <option value="@label.Id">@label.Name</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Or create a new Gmail label</label>
-                        <input class="form-control" @bind="newFolderName" placeholder="Enter folder name" />
-                    </div>
-                </div>
-                <p class="small text-muted mt-2">Chosen target: @(string.IsNullOrWhiteSpace(newFolderName)
-                    ? MoveDestinationLabels.FirstOrDefault(l => l.Id == selectedDestinationLabelId)?.Name ?? "None selected"
-                    : $"New label: {newFolderName}").</p>
-            }
-
-            <div class="mt-3 d-flex gap-2">
-                <button class="btn btn-success" disabled="@(!CanConfirmAction)" @onclick="ConfirmAction">@(actionInProgress ? "Working…" : "Confirm")</button>
-                <button class="btn btn-outline-secondary" disabled="@actionInProgress" @onclick="CancelAction">Cancel</button>
-            </div>
-        </div>
-    </div>
-}
-
 @code {
+    private string ActionDisplayName => pendingAction switch
+    {
+        MailBulkAction.Delete => "Move to Trash",
+        MailBulkAction.Archive => "Archive messages",
+        MailBulkAction.MarkRead => "Mark as read",
+        MailBulkAction.MarkUnread => "Mark as unread",
+        MailBulkAction.Move => "Move to label",
+        MailBulkAction.AddLabel => "Add label",
+        _ => "Bulk action"
+    };
     private bool isLoading = true;
     private bool showFilters = true;
+    private int senderPage = 0;
+    private const int SendersPerPage = 20;
+    [Parameter] public string? InitialSenderFilter { get; set; }
+    [Parameter] public string? InitialDomainFilter { get; set; }
+    private int SenderPageCount => Math.Max(1, (filteredSenders.Count + SendersPerPage - 1) / SendersPerPage);
+    private IEnumerable<SenderStatDto> PagedSenders => filteredSenders.Skip(senderPage * SendersPerPage).Take(SendersPerPage);
+    private void ChangeSenderPage(int page) => senderPage = Math.Clamp(page, 0, SenderPageCount - 1);
     private string searchTerm = string.Empty;
     private string domainFilter = string.Empty;
     private bool noreplyOnly;
@@ -402,6 +293,8 @@ else if (!isLoading)
 
     protected override async Task OnInitializedAsync()
     {
+        searchTerm = InitialSenderFilter ?? string.Empty;
+        domainFilter = InitialDomainFilter ?? string.Empty;
         await RefreshAsync();
         if (InitialSelectedMessageIds.Count > 0)
         {
@@ -486,6 +379,7 @@ else if (!isLoading)
             .Select(m => m.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (showActionPane) acknowledgesHiddenSelection = false;
         querySuggestions = engine.AutocompleteSuggestions(messageQuery).ToList();
+        senderPage = Math.Clamp(senderPage, 0, SenderPageCount - 1);
     }
 
     private bool? ParseAttachmentFilter() => attachmentFilterValue switch
