@@ -43,7 +43,7 @@ internal static class GmailScanDiagnostics
         }
         if (exception is HttpRequestException) return "Gmail network request failed.";
         if (exception is OperationCanceledException) return "Gmail request timed out.";
-        if (exception is Google.Apis.Auth.OAuth2.Responses.TokenResponseException) return "Google authorization failed. Please sign in again.";
+        if (exception is global::Google.Apis.Auth.OAuth2.Responses.TokenResponseException) return "Google authorization failed. Please sign in again.";
         return "Unexpected scan error. Check the application server diagnostics.";
     }
 }
