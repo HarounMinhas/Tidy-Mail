@@ -163,3 +163,6 @@ a{color:var(--tm-blue)}
 .tm-landing{padding:35px 20px;margin:25px auto}
 .tm-landing-actions{flex-wrap:wrap}
 }
+
+/* FocusOnNavigate uses a programmatically focused, noninteractive heading. */
+.tm-page h1[tabindex="-1"]:focus{outline:none}
