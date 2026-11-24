@@ -36,7 +36,7 @@
                 <button class="btn btn-sm btn-outline-primary" @onclick="() => showScan = true">Rescan</button>
             </div>
         }
-        <MailboxDashboard UserId="@userId" />
+        <MailboxDashboard UserId="@userId" OnRescanRequested="RequestRescan" />
     }
 }
 else
@@ -59,6 +59,8 @@ else
     private bool showScan;
     private bool isAuthenticated;
     private string userId = string.Empty;
+
+    private void RequestRescan() => showScan = true;
 
     protected override async Task OnInitializedAsync()
     {
