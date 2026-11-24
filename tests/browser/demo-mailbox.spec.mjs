@@ -26,6 +26,7 @@ async function scanDemo(page, who) {
   await expect(page.getByRole('heading', { name: 'Mailbox overview' })).toBeVisible();
   await assertStylesLoaded(page);
   await expect(page.locator('.tm-stat-card').first()).toContainText('48');
+  await page.screenshot({ path: 'test-results/tidy-mail-dashboard-' + who.toLowerCase() + '.png', fullPage: true });
 }
 
 test('two isolated demo accounts can scan and Alice can safely trash selected messages', async ({ browser }) => {
@@ -46,6 +47,7 @@ test('two isolated demo accounts can scan and Alice can safely trash selected me
     const preview = alice.getByRole('dialog', { name: 'Preview: Move to Trash' });
     await expect(preview).toBeVisible();
     await expect(preview).toContainText('8 messages');
+    await alice.screenshot({ path: 'test-results/tidy-mail-confirmation-modal.png', fullPage: true });
     const riskAck = preview.getByLabel('I reviewed the potentially important messages.');
     if (await riskAck.count()) await riskAck.check();
     const hiddenAck = preview.getByLabel('Include hidden selected messages');
