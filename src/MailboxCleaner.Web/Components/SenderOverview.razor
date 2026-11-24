@@ -152,8 +152,8 @@
                     <button type="button" class="tm-dialog-close" aria-label="Close preview" disabled="@actionInProgress" @onclick="CancelAction">×</button>
                 </div>
                 <div class="tm-dialog-summary">
-                    <div><strong>@actionPreview?.SelectedCount.ToString("N0") messages</strong><span>Included in this action</span></div>
-                    <div><strong>@previewMessages.Select(m => m.SenderEmail).Distinct(StringComparer.OrdinalIgnoreCase).Count() senders</strong><span>Across the selected messages</span></div>
+                    <div><strong>@(actionPreview?.SelectedCount.ToString("N0") ?? "0") messages</strong><span>Included in this action</span></div>
+                    <div><strong>@(previewMessages.Select(m => m.SenderEmail).Distinct(StringComparer.OrdinalIgnoreCase).Count()) senders</strong><span>Across the selected messages</span></div>
                 </div>
                 @if (HiddenSelectedCount > 0)
                 {
