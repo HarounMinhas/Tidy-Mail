@@ -5,10 +5,10 @@
         <strong>@State.StatusMessage</strong>
         <span>@State.ProgressPercent%</span>
     </div>
-    <div class="progress" role="progressbar" aria-valuenow="@State.ProgressPercent" aria-valuemin="0" aria-valuemax="100">
-        <div class="progress-bar" style="width:@State.ProgressPercent%"></div>
+    <div class="progress" role="progressbar" aria-label="Mailbox scan progress" aria-valuenow="@State.ProgressPercent" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress-bar @(State.Status == MailboxScanStatus.Failed ? "bg-danger" : State.Status == MailboxScanStatus.Completed ? "bg-success" : "")" style="width:@(State.ProgressPercent.ToString(System.Globalization.CultureInfo.InvariantCulture))%"></div>
     </div>
-    <div class="small text-muted mt-2">
+    <div class="small text-muted mt-2" role="status" aria-live="polite">
         Scanned @State.ScannedMessages messages
         @if (State.TotalDiscoveredMessages.HasValue)
         {

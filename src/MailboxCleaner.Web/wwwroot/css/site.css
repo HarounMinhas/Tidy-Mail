@@ -6,3 +6,13 @@ body {
 .table th {
     vertical-align: middle;
 }
+
+.mailbox-scan {
+    max-width: 760px;
+}
+.mailbox-scan .progress {
+    height: 0.75rem;
+}
+.mailbox-scan summary {
+    cursor: pointer;
+}

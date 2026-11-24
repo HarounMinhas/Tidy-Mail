@@ -8,13 +8,15 @@ public sealed class MailboxScanService
     private readonly IGmailClient _gmailClient;
     private readonly IMailboxMetadataStore _store;
     private readonly MailboxOperationCoordinator _coordinator;
+    private readonly ILogger<MailboxScanService>? _logger;
 
     public MailboxScanService(IGmailClient gmailClient, IMailboxMetadataStore store,
-        MailboxOperationCoordinator? coordinator = null)
+        MailboxOperationCoordinator? coordinator = null, ILogger<MailboxScanService>? logger = null)
     {
         _gmailClient = gmailClient;
         _store = store;
         _coordinator = coordinator ?? new MailboxOperationCoordinator();
+        _logger = logger;
     }
 
     public async Task<MailboxScanState> GetOrCreateScanAsync(string userId, CancellationToken cancellationToken)
@@ -75,20 +77,32 @@ public sealed class MailboxScanService
             await _store.SaveScanStateAsync(state, cancellationToken);
             progress?.Report(state);
 
-            var gmailProgress = new Progress<GmailScanProgress>(update =>
+            // Update the actual attempt state synchronously, so failure/cancellation
+            // can retain the latest counters even when the UI progress callback is queued.
+            var progressLock = new object();
+            var gmailProgress = new InlineProgress<GmailScanProgress>(update =>
             {
-                progress?.Report(state with
+                lock (progressLock)
                 {
-                    Status = update.DiscoveryComplete ? MailboxScanStatus.FetchingMetadata : MailboxScanStatus.Discovering,
-                    StatusMessage = update.DiscoveryComplete ? "Fetching Gmail metadata" : "Discovering Gmail message IDs",
-                    CurrentPage = update.CurrentPage,
-                    TotalDiscoveredMessages = update.DiscoveryComplete ? update.DiscoveredMessages : null,
-                    ScannedMessages = update.ScannedMessages
-                });
+                    state = state with
+                    {
+                        Status = update.DiscoveryComplete ? MailboxScanStatus.FetchingMetadata : MailboxScanStatus.Discovering,
+                        StatusMessage = update.Stage ?? (update.DiscoveryComplete ? "Fetching Gmail metadata" : "Discovering Gmail message IDs"),
+                        CurrentPage = Math.Max(state.CurrentPage, update.CurrentPage),
+                        TotalDiscoveredMessages = update.DiscoveredMessages,
+                        ScannedMessages = Math.Max(state.ScannedMessages, update.ScannedMessages),
+                        DiagnosticMessage = update.DiagnosticMessage
+                    };
+                    progress?.Report(state);
+                }
             });
             // Capture the cursor *before* scanning to avoid missing changes during the scan.
+            state = state with { StatusMessage = "Reading Gmail mailbox history cursor" };
+            progress?.Report(state);
             var startingHistoryId = await _gmailClient.GetMailboxHistoryIdAsync(cancellationToken);
             var metadata = await _gmailClient.FetchMessageMetadataAsync(true, gmailProgress, cancellationToken);
+            state = state with { StatusMessage = "Saving complete mailbox metadata locally", DiagnosticMessage = null };
+            progress?.Report(state);
             var mapped = metadata.Select(Map).ToList();
             state = state with
             {
@@ -106,20 +120,29 @@ public sealed class MailboxScanService
             progress?.Report(state);
             return state;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            state = state with { Status = MailboxScanStatus.Cancelled, StatusMessage = "Mailbox scan cancelled", CachedMetadata = await _store.GetMetadataAsync(userId, CancellationToken.None) };
+            state = state with { Status = MailboxScanStatus.Cancelled, StatusMessage = "Mailbox scan cancelled", DiagnosticMessage = null, CachedMetadata = await _store.GetMetadataAsync(userId, CancellationToken.None) };
             await SaveAttemptOutcomeAsync(state, previous);
             progress?.Report(state);
             return state;
         }
         catch (Exception ex)
         {
-            state = state with { Status = MailboxScanStatus.Failed, StatusMessage = "Mailbox scan failed", ErrorMessage = ex.Message, CachedMetadata = await _store.GetMetadataAsync(userId, CancellationToken.None) };
+            // GmailOperationException messages at this boundary are deliberately safe
+            // summaries. Never forward raw provider exceptions or request URLs.
+            var error = ex is GmailOperationException ? ex.Message : GmailScanDiagnostics.Describe(ex);
+            _logger?.LogWarning("Mailbox scan failed during {Stage}: {Reason}", state.StatusMessage, error);
+            state = state with { Status = MailboxScanStatus.Failed, StatusMessage = "Mailbox scan failed", ErrorMessage = error, DiagnosticMessage = null, CachedMetadata = await _store.GetMetadataAsync(userId, CancellationToken.None) };
             await SaveAttemptOutcomeAsync(state, previous);
             progress?.Report(state);
             return state;
         }
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 
     private async Task SaveAttemptOutcomeAsync(MailboxScanState attempt, MailboxScanState? previous)

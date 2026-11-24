@@ -9,7 +9,7 @@ namespace MailboxCleaner.Web.Infrastructure.Google.Gmail;
 
 public sealed class GmailClient : IGmailClient
 {
-    private const int MaxConcurrency = 10;
+    private const int MaxConcurrency = 3;
     private const int PageSize = 500;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private readonly IGmailCredentialFactory _credentialFactory;
@@ -49,6 +49,17 @@ public sealed class GmailClient : IGmailClient
         {
             var allMessageIds = new List<string>();
             var pageNumber = 0;
+            var retryEvents = 0;
+            void ReportRetry(string diagnostic, string stage, int total, int scanned, bool discoveryComplete)
+            {
+                // Bound console traffic even when a large mailbox is throttled.
+                var count = Interlocked.Increment(ref retryEvents);
+                if (count <= 10 || count % 25 == 0)
+                    progress?.Report(new GmailScanProgress(pageNumber, total, scanned, discoveryComplete)
+                    { Stage = stage, DiagnosticMessage = diagnostic });
+            }
+
+            progress?.Report(new GmailScanProgress(0, 0, 0, false) { Stage = "Discovering Gmail message IDs" });
             var listRequest = service.Users.Messages.List("me");
             listRequest.IncludeSpamTrash = false;
             listRequest.MaxResults = PageSize;
@@ -56,7 +67,8 @@ public sealed class GmailClient : IGmailClient
             do
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var response = await ExecuteWithRetryAsync(() => listRequest.ExecuteAsync(cancellationToken), cancellationToken);
+                var response = await ExecuteWithRetryAsync(() => listRequest.ExecuteAsync(cancellationToken), cancellationToken,
+                    diagnostic => ReportRetry(diagnostic, "Discovering Gmail message IDs", allMessageIds.Count, 0, false));
                 pageNumber++;
                 if (response.Messages is not null)
                 {
@@ -70,11 +82,30 @@ public sealed class GmailClient : IGmailClient
             var uniqueIds = allMessageIds.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             // Gmail METADATA format does not include MIME parts. Search message IDs
             // separately to classify attachments without downloading message bodies.
-            var attachmentIds = await FetchAttachmentIdsAsync(service, cancellationToken);
-            progress?.Report(new GmailScanProgress(pageNumber, uniqueIds.Count, 0, true));
+            progress?.Report(new GmailScanProgress(pageNumber, uniqueIds.Count, 0, true)
+                { Stage = "Finding messages with attachments" });
+            var attachmentIds = await FetchAttachmentIdsAsync(service, cancellationToken,
+                diagnostic => ReportRetry(diagnostic, "Finding messages with attachments", uniqueIds.Count, 0, true));
+            progress?.Report(new GmailScanProgress(pageNumber, uniqueIds.Count, 0, true)
+                { Stage = "Fetching Gmail metadata" });
             var scannedMessages = 0;
             var metadataItems = new ConcurrentBag<GmailMessageMetadata>();
             var failures = new ConcurrentBag<string>();
+            var reportLock = new object();
+            var processedMessages = 0;
+            void ReportProcessed()
+            {
+                lock (reportLock)
+                {
+                    processedMessages++;
+                    if (processedMessages % 25 == 0 || processedMessages == uniqueIds.Count)
+                        progress?.Report(new GmailScanProgress(pageNumber, uniqueIds.Count, Volatile.Read(ref scannedMessages), true)
+                        {
+                            Stage = "Fetching Gmail metadata",
+                            DiagnosticMessage = failures.IsEmpty ? null : $"Metadata requests failed so far: {failures.Count}."
+                        });
+                }
+            }
             await Parallel.ForEachAsync(
                 uniqueIds,
                 new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = MaxConcurrency },
@@ -82,7 +113,11 @@ public sealed class GmailClient : IGmailClient
                 {
                     try
                     {
-                        var message = await FetchMetadataAsync(service, messageId, token);
+                        var message = await FetchMetadataAsync(service, messageId, token, diagnostic =>
+                        {
+                            lock (reportLock)
+                                ReportRetry(diagnostic, "Fetching Gmail metadata", uniqueIds.Count, Volatile.Read(ref scannedMessages), true);
+                        });
                         var fromHeader = GetHeader(message, "From");
                         if (string.IsNullOrWhiteSpace(fromHeader))
                         {
@@ -96,21 +131,37 @@ public sealed class GmailClient : IGmailClient
                         var listUnsubscribe = GetHeader(message, "List-Unsubscribe");
                         var precedence = GetHeader(message, "Precedence");
                         metadataItems.Add(new GmailMessageMetadata(message.Id ?? messageId, fromHeader, subject, receivedAt, labels.Contains("UNREAD", StringComparer.OrdinalIgnoreCase) is false, attachmentIds.Contains(messageId), labels, message.ThreadId, message.SizeEstimate, listUnsubscribe, precedence, DateTimeOffset.UtcNow));
-                        var scanned = Interlocked.Increment(ref scannedMessages);
-                        if (scanned % 25 == 0 || scanned == uniqueIds.Count)
-                            progress?.Report(new GmailScanProgress(pageNumber, uniqueIds.Count, scanned, true));
+                        Interlocked.Increment(ref scannedMessages);
+                        ReportProcessed();
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
                     {
-                        failures.Add($"{messageId}: {ex.Message}");
+                        var detail = GmailScanDiagnostics.Describe(ex);
+                        failures.Add(detail);
+                        ReportProcessed();
+                        // A malformed request or invalid authorization will not improve
+                        // by sending the same request for every message in the mailbox.
+                        if (ex is GoogleApiException api && GmailScanDiagnostics.IsPermanentRequestFailure(api))
+                            throw new GmailOperationException(
+                                $"Unable to load complete Gmail metadata. {detail} The scan was stopped early.", ex);
+
+                        if (failures.Count <= MaxConcurrency)
+                        {
+                            lock (reportLock)
+                                progress?.Report(new GmailScanProgress(pageNumber, uniqueIds.Count, Volatile.Read(ref scannedMessages), true)
+                                { Stage = "Fetching Gmail metadata", DiagnosticMessage = detail });
+                        }
                     }
                 });
 
             if (!failures.IsEmpty)
             {
+                var details = string.Join("; ", failures.GroupBy(reason => reason)
+                    .OrderByDescending(group => group.Count()).Take(3)
+                    .Select(group => $"{group.Key} ({group.Count()} requests)"));
                 throw new GmailOperationException(
-                    $"Unable to load complete Gmail metadata. {failures.Count} message metadata request(s) failed; retry to avoid using an incomplete mailbox scan.",
-                    new InvalidOperationException(string.Join("; ", failures.Take(5))));
+                    $"Unable to load complete Gmail metadata. {failures.Count} message metadata request(s) failed. {details} Retry to avoid using an incomplete mailbox scan.",
+                    new InvalidOperationException(details));
             }
 
             _metadataCache = metadataItems.OrderByDescending(item => item.ReceivedAt).ToList();
@@ -121,9 +172,9 @@ public sealed class GmailClient : IGmailClient
         {
             throw;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            throw new GmailOperationException("Unable to load Gmail metadata. Please retry or sign in again.", ex);
+            throw new GmailOperationException($"Unable to load Gmail metadata. {GmailScanDiagnostics.Describe(ex)}", ex);
         }
     }
 
@@ -409,18 +460,27 @@ public sealed class GmailClient : IGmailClient
         || labelId.Equals("CATEGORY_UPDATES", StringComparison.OrdinalIgnoreCase)
         || labelId.Equals("CATEGORY_FORUMS", StringComparison.OrdinalIgnoreCase);
 
-    private static Task<Message> FetchMetadataAsync(GmailService service, string messageId, CancellationToken cancellationToken)
+    private static Task<Message> FetchMetadataAsync(GmailService service, string messageId, CancellationToken cancellationToken,
+        Action<string>? onRetry = null)
+    {
+        var getRequest = BuildMetadataRequest(service, messageId);
+        return ExecuteWithRetryAsync(() => getRequest.ExecuteAsync(cancellationToken), cancellationToken, onRetry);
+    }
+
+    internal static UsersResource.MessagesResource.GetRequest BuildMetadataRequest(GmailService service, string messageId)
     {
         var getRequest = service.Users.Messages.Get("me", messageId);
         getRequest.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Metadata;
         getRequest.MetadataHeaders = new[] { "From", "Subject", "Date", "List-Unsubscribe", "Precedence" };
-        getRequest.Fields = "id,threadId,labelIds,sizeEstimate,payload(headers(name,value),filename,body/attachmentId,parts(filename,body/attachmentId,parts)))";
-        return ExecuteWithRetryAsync(() => getRequest.ExecuteAsync(cancellationToken), cancellationToken);
+        // Attachment flags come from has:attachment. Never request MIME bodies or parts.
+        getRequest.Fields = "id,threadId,labelIds,sizeEstimate,payload(headers(name,value))";
+        return getRequest;
     }
 
     private static string? GetHeader(Message message, string name) => message.Payload?.Headers?.FirstOrDefault(h => string.Equals(h.Name, name, StringComparison.OrdinalIgnoreCase))?.Value;
 
-    private static async Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken)
+    private static async Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken,
+        Action<string>? onRetry = null)
     {
         for (var attempt = 1; ; attempt++)
         {
@@ -432,7 +492,8 @@ public sealed class GmailClient : IGmailClient
             catch (Exception ex) when (attempt < 4 && !cancellationToken.IsCancellationRequested && IsTransient(ex))
             {
                 // Exponential backoff with jitter for throttling and transient API failures.
-                var delay = 250 * (1 << (attempt - 1)) + Random.Shared.Next(0, 200);
+                var delay = 1000 * (1 << (attempt - 1)) + Random.Shared.Next(0, 500);
+                onRetry?.Invoke($"Retry {attempt}/3 in {delay} ms. {GmailScanDiagnostics.Describe(ex)}");
                 await Task.Delay(TimeSpan.FromMilliseconds(delay), cancellationToken);
             }
         }
@@ -446,13 +507,9 @@ public sealed class GmailClient : IGmailClient
         _ => false
     };
 
-    private static bool IsTransient(Exception exception) => exception switch
+    internal static bool IsTransient(Exception exception) => exception switch
     {
-        GoogleApiException api => api.HttpStatusCode == HttpStatusCode.TooManyRequests
-            || api.HttpStatusCode == HttpStatusCode.InternalServerError
-            || api.HttpStatusCode == HttpStatusCode.BadGateway
-            || api.HttpStatusCode == HttpStatusCode.ServiceUnavailable
-            || api.HttpStatusCode == HttpStatusCode.GatewayTimeout,
+        GoogleApiException api => GmailScanDiagnostics.IsRetryable(api),
         HttpRequestException => true,
         TaskCanceledException => true,
         _ => false
@@ -463,7 +520,8 @@ public sealed class GmailClient : IGmailClient
         _metadataCache = null; _labelCache = null; _metadataCacheExpiresAt = default;
     }
 
-    private static async Task<HashSet<string>> FetchAttachmentIdsAsync(GmailService service, CancellationToken cancellationToken)
+    private static async Task<HashSet<string>> FetchAttachmentIdsAsync(GmailService service, CancellationToken cancellationToken,
+        Action<string>? onRetry = null)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var request = service.Users.Messages.List("me");
@@ -473,7 +531,7 @@ public sealed class GmailClient : IGmailClient
         do
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var response = await ExecuteWithRetryAsync(() => request.ExecuteAsync(cancellationToken), cancellationToken);
+            var response = await ExecuteWithRetryAsync(() => request.ExecuteAsync(cancellationToken), cancellationToken, onRetry);
             if (response.Messages is not null)
             {
                 foreach (var message in response.Messages)

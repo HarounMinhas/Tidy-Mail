@@ -27,7 +27,11 @@ public interface IGmailClient
 public sealed record GmailHistoryDelta(string LastHistoryId, IReadOnlyList<GmailMessageMetadata> UpdatedMessages,
     IReadOnlyCollection<string> DeletedMessageIds);
 
-public sealed record GmailScanProgress(int CurrentPage, int DiscoveredMessages, int ScannedMessages, bool DiscoveryComplete);
+public sealed record GmailScanProgress(int CurrentPage, int DiscoveredMessages, int ScannedMessages, bool DiscoveryComplete)
+{
+    public string? Stage { get; init; }
+    public string? DiagnosticMessage { get; init; }
+}
 
 public sealed record GmailLabel(string Id, string Name, bool IsSystemLabel);
 
