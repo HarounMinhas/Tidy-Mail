@@ -120,7 +120,7 @@ public sealed class MailboxScanService
             progress?.Report(state);
             return state;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
             state = state with { Status = MailboxScanStatus.Cancelled, StatusMessage = "Mailbox scan cancelled", DiagnosticMessage = null, CachedMetadata = await _store.GetMetadataAsync(userId, CancellationToken.None) };
             await SaveAttemptOutcomeAsync(state, previous);
